@@ -203,7 +203,7 @@ class Table {
       const humans = Engine.pendingActors(st).filter(p => !this.isBotSeat(st, p));
       if (!humans.length) break;
       const p = humans[0];
-      const a = Bot.decide(st, p, rng, { autopilot: true });
+      const a = Bot.decide(Engine.redact(st, p), p, rng, { autopilot: true });
       if (!a) break;
       try { d.game = Engine.apply(st, p, a, rng); changed = true; } catch (e) { console.error('autopilot', e); break; }
       if (n === 0) Engine.addLog(d.game, { k: 'timeout', p });
@@ -237,11 +237,12 @@ class Table {
     const actors = this.botActors(s);
     if (!actors.length) return;
     const p = actors[0];
-    const a = Bot.decide(s, p, rng);
+    const view = Engine.redact(s, p); // bots only see what a person in their seat would
+    const a = Bot.decide(view, p, rng);
     if (!a) return;
     try { d.game = Engine.apply(s, p, a, rng); }
     catch (e) {
-      const b = Bot.decide(s, p, rng, { autopilot: true });
+      const b = Bot.decide(view, p, rng, { autopilot: true });
       try { d.game = Engine.apply(s, p, b, rng); } catch (e2) { console.error('bot stuck', a, b, e2.message); return; }
     }
     this.changed();
@@ -256,18 +257,7 @@ class Table {
     const s = d.game;
     if (s.phase === 'ended') return out;
     const me = s.players.findIndex(p => !p.bot && p.uid === uid);
-    const g = Object.assign({}, s);
-    g.players = s.players.map((p, i) => i === me ? p : Object.assign({}, p, {
-      res: Engine.emptyRes(), nCards: Engine.total(p.res), dev: p.dev.map(() => 'hidden'), newDev: {},
-    }));
-    g.deck = s.deck.map(() => 0);
-    g.log = s.log.map(e => {
-      if (e.k === 'steal' && e.p !== me && e.q !== me) return Object.assign({}, e, { r: null });
-      if (e.k === 'buyDev' && e.p !== me) return Object.assign({}, e, { card: null });
-      return e;
-    });
-    if (g.trade) g.trade = s.trade; // offers are public
-    out.game = g;
+    out.game = Engine.redact(s, me);
     return out;
   }
 

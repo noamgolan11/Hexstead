@@ -1087,8 +1087,8 @@ function onHex(h) { send({ t: 'robber', h }); }
 
 function bindEvents() {
   const wake = () => Sound.unlock();
-  document.addEventListener('pointerdown', wake, true);
-  document.addEventListener('keydown', wake, true);
+  // phones only allow audio from a finished tap, so listen to the end of touches and clicks too
+  for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) document.addEventListener(ev, wake, true);
   document.addEventListener('click', e => {
     const t = e.target.closest('[data-act]');
     if (t) {

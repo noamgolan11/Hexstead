@@ -2,7 +2,7 @@
    HEXSTEAD CLIENT NET — talks to the game server over a WebSocket.
    The server owns every online table. Practice games run locally.
    ============================================================ */
-const HEXSTEAD_VERSION = '1.2';
+const HEXSTEAD_VERSION = '1.2.2';
 const COLORS = [
   { id: 'red', name: 'Crimson', hex: '#d8463b' },
   { id: 'blue', name: 'Cobalt', hex: '#3b78e0' },
@@ -288,11 +288,12 @@ class LocalHost {
     const actors = this.botActors(s);
     if (!actors.length) return;
     const p = actors[0];
-    const a = Bot.decide(s, p, rng);
+    const view = Engine.redact(s, p); // bots only see what a person in their seat would
+    const a = Bot.decide(view, p, rng);
     if (!a) return;
     try { d.game = Engine.apply(s, p, a, rng); }
     catch (e) {
-      const b = Bot.decide(s, p, rng, { autopilot: true });
+      const b = Bot.decide(view, p, rng, { autopilot: true });
       try { d.game = Engine.apply(s, p, b, rng); } catch (e2) { console.warn('bot stuck', a, b, e2); return; }
     }
     this.changed();

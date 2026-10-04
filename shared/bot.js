@@ -41,6 +41,9 @@ const Bot = (() => {
     return sc;
   }
 
+  /* how many cards a player holds: the count is public even when the cards are not */
+  function cards(s, q) { const P = s.players[q]; return P.nCards != null ? P.nCards : E.total(P.res); }
+
   function missing(res, cost) {
     const m = E.emptyRes();
     for (const r of RES) m[r] = Math.max(0, (cost[r] || 0) - (res[r] || 0));
@@ -120,14 +123,14 @@ const Bot = (() => {
         const b = s.bld[v];
         if (!b) continue;
         if (b.p === p) sc -= 40;
-        else sc += pip * (b.city ? 2 : 1) * (1 + E.publicVP(s, b.p) / 4) + (E.total(s.players[b.p].res) > 0 ? 1.5 : 0);
+        else sc += pip * (b.city ? 2 : 1) * (1 + E.publicVP(s, b.p) / 4) + (cards(s, b.p) > 0 ? 1.5 : 0);
       }
       return sc;
     });
   }
 
   function chooseVictim(s, p, cands) {
-    return bestBy(cands, q => E.publicVP(s, q) * 10 + E.total(s.players[q].res));
+    return bestBy(cands, q => E.publicVP(s, q) * 10 + cards(s, q));
   }
 
   /* pick the build the bot is working toward */
@@ -204,9 +207,18 @@ const Bot = (() => {
       }
     }
     if (can('monopoly')) {
-      const r = bestBy(RES, x => s.players.reduce((a, q, i) => a + (i === p ? 0 : q.res[x]), 0) * (goal && goal.cost[x] ? 1.4 : 1));
-      const n = s.players.reduce((a, q, i) => a + (i === p ? 0 : q.res[r]), 0);
-      if (n >= 4) return { t: 'play', card: 'monopoly', r };
+      // guess like a person would: how many cards each opponent holds, split by what their buildings produce
+      const est = E.emptyRes();
+      s.players.forEach((q, i) => {
+        if (i === p) return;
+        const n = cards(s, i);
+        if (!n) return;
+        const pr = prodOf(s, i);
+        let tot = 0; for (const r of RES) tot += pr[r] + 1;
+        for (const r of RES) est[r] += n * (pr[r] + 1) / tot;
+      });
+      const r = bestBy(RES, x => est[x] * (goal && goal.cost[x] ? 1.4 : 1));
+      if (est[r] >= 3.5) return { t: 'play', card: 'monopoly', r };
     }
     if (can('roadBuilding')) {
       const left = E.piecesLeft(s, p);
@@ -219,7 +231,7 @@ const Bot = (() => {
     const t = s.trade;
     const P = s.players[p];
     if (!E.has(P.res, t.get)) return { t: 'respond', id: t.id, r: 'decline' };
-    if (E.vp(s, t.from) >= s.settings.vpToWin - 2) return { t: 'respond', id: t.id, r: 'decline' };
+    if (E.publicVP(s, t.from) >= s.settings.vpToWin - 2) return { t: 'respond', id: t.id, r: 'decline' };
     const goal = pickGoal(s, p);
     const cost = goal ? goal.cost : E.COST.dev;
     const miss = missing(P.res, cost);

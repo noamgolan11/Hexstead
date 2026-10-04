@@ -883,11 +883,29 @@ const Engine = (() => {
     log(s, { k: 'turn', p: s.cur });
   }
 
+  /* What player `me` is allowed to know: their own hand and cards, everyone's card COUNTS,
+     the board, scores without hidden VP cards, and the public log. Used for what each
+     browser receives and for every bot decision, so bots see exactly what a person would. */
+  function redact(s, me) {
+    if (s.phase === 'ended') return s;
+    const g = Object.assign({}, s);
+    g.players = s.players.map((p, i) => i === me ? p : Object.assign({}, p, {
+      res: emptyRes(), nCards: total(p.res), dev: p.dev.map(() => 'hidden'), newDev: {},
+    }));
+    g.deck = s.deck.map(() => 0);
+    g.log = s.log.map(e => {
+      if (e.k === 'steal' && e.p !== me && e.q !== me) return Object.assign({}, e, { r: null });
+      if (e.k === 'buyDev' && e.p !== me) return Object.assign({}, e, { card: null });
+      return e;
+    });
+    return g;
+  }
+
   /* convenience: apply on a copy, return new state or throw */
   function apply(s, p, a, rng) { const n = clone(s); act(n, p, a, rng); return n; }
 
   return {
-    addLog: log,
+    addLog: log, redact,
     RES, T2R, COST, PIECES, DEV_COUNTS, DEV_COUNTS_BIG, PIPS, BANK_START, MAPS, MAP_ORDER, mapInfo, DEFAULT_SETTINGS,
     topo, buildTopology, genBoard, newGame, act, apply, clone, total, has, addRes, emptyRes, cleanRes, shuffle,
     piecesLeft, publicVP, vp, vpCards, playable, rates, portAt, settlementOk, roadOk,

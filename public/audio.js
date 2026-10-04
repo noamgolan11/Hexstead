@@ -47,7 +47,7 @@ const Sound = (() => {
   function unlock() {
     const c = ensure();
     if (!c) return;
-    if (c.state === 'suspended') c.resume().catch(() => { });
+    if (c.state !== 'running') c.resume().catch(() => { }); // 'suspended', or 'interrupted' on iPhone after a call or app switch
     syncMusic();
   }
   function ready() { return ctx && ctx.state === 'running'; }
@@ -57,7 +57,7 @@ const Sound = (() => {
     const t = ctx.currentTime, k = instant ? 0.02 : 0.15;
     master.gain.setTargetAtTime(cfg.muted ? 0 : 1, t, k);
     sfxBus.gain.setTargetAtTime(cfg.sfxOn ? Math.pow(cfg.sfxVol, 1.5) : 0, t, k);
-    const mv = cfg.musicOn && !document.hidden ? Math.pow(cfg.musicVol, 1.5) * 0.9 : 0;
+    const mv = cfg.musicOn && !document.hidden ? Math.pow(cfg.musicVol, 1.5) * 0.9 * SMALL_SPEAKER : 0;
     musicBus.gain.setTargetAtTime(mv, t, instant ? 0.05 : 1.0);
   }
   function syncMusic() {
@@ -77,6 +77,7 @@ const Sound = (() => {
   }
   document.addEventListener('visibilitychange', () => {
     if (!ctx) return;
+    if (!document.hidden && ctx.state !== 'running') ctx.resume().catch(() => { });
     applyGains();
     if (!document.hidden && musicOn && nextChordAt < ctx.currentTime) nextChordAt = ctx.currentTime + 0.3;
   });
@@ -195,13 +196,16 @@ const Sound = (() => {
   }
 
   /* ---------------- music: slow chords, sparse plucks, distant waves ---------------- */
+  // phones can't reproduce much below ~300 Hz, so the harmony sits around 300-800 Hz
+  // (every chord tone is E4 or higher) and only the root goes low (it adds depth on laptops and headphones)
   const CHORDS = [
-    [50, 57, 61, 64, 66],   // D maj9
-    [47, 54, 57, 62],       // B m7
-    [43, 50, 54, 59, 62],   // G maj7
-    [45, 52, 59, 61],       // A add9
+    { root: 38, notes: [66, 69, 73, 76, 78] },   // D maj9
+    { root: 35, notes: [66, 69, 71, 74] },       // B m7
+    { root: 31, notes: [67, 71, 74, 78] },       // G maj7
+    { root: 33, notes: [64, 69, 71, 73] },       // A add9
   ];
-  const MELODY = [62, 64, 66, 69, 71, 74, 76, 78, 81];
+  const MELODY = [74, 76, 78, 81, 83, 86, 88, 90, 93];
+  const SMALL_SPEAKER = window.matchMedia && matchMedia('(pointer: coarse)').matches ? 1.4 : 1;
   const CHORD_LEN = 9;
   function startMusic() {
     if (musicOn || !ctx) return;
@@ -232,16 +236,17 @@ const Sound = (() => {
       chordIdx++;
     }
   }
-  function padChord(notes, t, len) {
-    for (const n of notes) {
+  function padChord(chord, t, len) {
+    bassNote(NOTE(chord.root + 12), t, len);
+    for (const n of chord.notes) {
       for (const det of [-5, 5]) {
         const o = ctx.createOscillator();
         o.type = det < 0 ? 'sine' : 'triangle';
         o.frequency.value = NOTE(n);
         o.detune.value = det;
-        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 850;
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2400;
         const g = ctx.createGain();
-        const peak = det < 0 ? 0.03 : 0.012;
+        const peak = det < 0 ? 0.034 : 0.016;
         g.gain.setValueAtTime(0.0001, t);
         g.gain.exponentialRampToValueAtTime(peak, t + 2.8);
         g.gain.setValueAtTime(peak, t + len - 0.5);
@@ -251,11 +256,21 @@ const Sound = (() => {
       }
     }
   }
+  function bassNote(freq, t, len) {
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.02, t + 2.5);
+    g.gain.setValueAtTime(0.02, t + len - 0.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len + 2.5);
+    o.connect(g); g.connect(musicDry);
+    o.start(t); o.stop(t + len + 2.6);
+  }
   function musicNote(freq, t) {
     const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.035, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.045, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
     o.connect(g); g.connect(reverbIn);
     const dry = ctx.createGain(); dry.gain.value = 0.4; g.connect(dry); dry.connect(musicDry);
@@ -263,8 +278,8 @@ const Sound = (() => {
   }
   function startWaves() {
     const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
-    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420;
-    const g = ctx.createGain(); g.gain.value = 0.012;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 650; f.Q.value = 0.5;
+    const g = ctx.createGain(); g.gain.value = 0.01;
     const lfo = ctx.createOscillator(); lfo.frequency.value = 0.09;
     const depth = ctx.createGain(); depth.gain.value = 0.01;
     lfo.connect(depth); depth.connect(g.gain);
