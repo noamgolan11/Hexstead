@@ -708,6 +708,16 @@ function respStatus(s, t, q) {
   return `<span class="st counter">${ic('quill')}Counter-offer</span>`;
 }
 
+/* everyone else's answers to an offer, counter-offers spelled out */
+function otherReplies(s, t, list) {
+  if (!list.length) return '';
+  return `<div class="ft-others">${list.map(i => {
+    const r = t.resp[i];
+    const terms = r && typeof r === 'object' ? `<span class="counter-terms">gives ${tradeCards(r.give)} for ${tradeCards(r.get)}</span>` : '';
+    return `<div class="resp small"><span class="sw" style="background:${COLOR_HEX[s.players[i].color]}"></span><span class="nm">${esc(pName(s, i))}</span>${respStatus(s, t, i)}${terms}</div>`;
+  }).join('')}</div>`;
+}
+
 function renderFloatTrade(d, s, me) {
   const el = $('#floatTrade');
   const t = s.trade;
@@ -724,7 +734,7 @@ function renderFloatTrade(d, s, me) {
       if (r === 'accept') act = `<button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}">Trade</button>`;
       else if (r && r !== 'decline') {
         const short = missingText(P.res, r.get);
-        act = `<span class="counter-terms">they give ${tradeCards(r.give)} for ${tradeCards(r.get)}</span><button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}" ${short ? `aria-disabled="true" title="${esc(short)}"` : ''}>Accept</button>`;
+        act = `<span class="counter-terms">you get ${tradeCards(r.give)} <span class="ft-swap">${ic('trade')}</span> you give ${tradeCards(r.get)}</span><button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}" ${short ? `aria-disabled="true" title="${esc(short)}"` : ''}>Accept</button>`;
       }
       return `<div class="resp"><span class="sw" style="background:${COLOR_HEX[pl.color]}"></span><span class="nm">${esc(pName(s, i))}</span>${respStatus(s, t, i)}<span class="resp-act">${act}</span></div>`;
     }).join('');
@@ -735,7 +745,7 @@ function renderFloatTrade(d, s, me) {
       <div class="ft-foot"><span class="note">${waiting ? 'Waiting for ' + waiting + ' ' + (waiting > 1 ? 'players' : 'player') + '…' : 'Everyone has answered.'}</span><button class="btn small" data-act="cancel-offer">Cancel offer</button></div></div>`;
   } else if (me < 0) {
     html = `<div class="float-trade"><div class="ft-top"><span class="ft-title">${pTag(s, from)} offers</span><div class="ft-deal"><span class="ft-side">${tradeCards(t.give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side">${tradeCards(t.get)}</span></div></div>
-      <div class="ft-others">${others.map(i => `<span>${pTag(s, i)} ${respStatus(s, t, i)}</span>`).join('')}</div></div>`;
+      ${otherReplies(s, t, others)}</div>`;
   } else {
     const r = t.resp[me];
     const P = s.players[me];
@@ -749,7 +759,7 @@ function renderFloatTrade(d, s, me) {
     html = `<div class="float-trade incoming">
       <div class="ft-top"><span class="ft-title">${pTag(s, from)} offers you a trade</span><div class="ft-deal"><span class="ft-side"><span class="lbl">You get</span>${tradeCards(t.give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side"><span class="lbl">You give</span>${tradeCards(t.get)}</span></div></div>
       <div class="ft-actions">${ctl}</div>
-      ${rest.length ? `<div class="ft-others">${rest.map(i => `<span>${pTag(s, i)} ${respStatus(s, t, i)}</span>`).join('')}</div>` : ''}</div>`;
+      ${otherReplies(s, t, rest)}</div>`;
   }
   setHTML(el, html);
 }
@@ -806,13 +816,10 @@ function renderDock(d, s, me) {
   setHTML(el, `<div class="hand" aria-label="Your cards">${hand}</div>${devs ? `<div class="devs">${devs}</div>` : ''}<div class="actions">${actions}<button class="btn small icon" data-act="costs" aria-label="Build costs" aria-expanded="${!!app.ui.costs}">?</button></div>${costs}`);
 }
 
-/* who wears the crown: the most points anyone can see (ties share it; nobody while everyone is level) */
+/* who wears the crown: kept by the engine (one leader; a tie doesn't move it) */
 function leaders(s) {
   if (s.phase === 'ended') return new Set([s.winner]);
-  const v = s.players.map((_, i) => Engine.publicVP(s, i));
-  const max = Math.max(...v);
-  const top = v.map((x, i) => x === max ? i : -1).filter(i => i >= 0);
-  return top.length === v.length ? new Set() : new Set(top);
+  return new Set(Number.isInteger(s.crown) && s.crown >= 0 ? [s.crown] : []);
 }
 /* what a player is doing with the open offer, for the players panel */
 function tradeStatus(s, i) {
@@ -823,7 +830,7 @@ function tradeStatus(s, i) {
   if (t.drafting && t.drafting[i] && r === undefined) return `<span class="tstat drafting" title="Writing a counter-offer">${ic('quill')}<i></i><i></i><i></i></span>`;
   if (r === 'accept') return `<span class="tstat yes" title="Accepted the offer">${ic('check')}</span>`;
   if (r === 'decline') return `<span class="tstat no" title="Declined the offer">${ic('x')}</span>`;
-  if (r) return `<span class="tstat counter" title="Made a counter-offer">${ic('quill')}</span>`;
+  if (r) return `<span class="tstat counter" title="Counter-offer: gives ${Engine.RES.filter(k => r.give[k]).map(k => r.give[k] + ' ' + RES_NAME[k].toLowerCase()).join(', ')} for ${Engine.RES.filter(k => r.get[k]).map(k => r.get[k] + ' ' + RES_NAME[k].toLowerCase()).join(', ')}">${ic('quill')}</span>`;
   return '';
 }
 

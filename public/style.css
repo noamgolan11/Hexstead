@@ -221,8 +221,9 @@ aside.side { border-left: 1px solid var(--line); background: var(--panel); displ
 @keyframes scribble { 0%, 100% { transform: rotate(0) } 30% { transform: rotate(-12deg) translateX(1px) } 60% { transform: rotate(8deg) } }
 .ft-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .ft-actions .btn svg { width: 16px; height: 16px; }
-.ft-others { display: flex; gap: 6px 14px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; padding-top: 8px; border-top: 1px solid var(--line); }
-.ft-others > span { display: inline-flex; gap: 6px; align-items: center; }
+.ft-others { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; font-size: 13px; padding-top: 6px; border-top: 1px solid var(--line); }
+.resp.small { min-height: 28px; font-size: 13px; }
+.resp.small .nm { min-width: 56px; }
 .ft-foot { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-top: 8px; }
 
 /* ---------- dock (hand + actions) ---------- */

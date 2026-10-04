@@ -910,7 +910,24 @@ const Engine = (() => {
       default: throw err('Unknown action.');
     }
     checkWin(s);
+    updateCrown(s);
     return s;
+  }
+
+  /* The crown marks the leader by the points everyone can see. When someone ties the leader, the leader
+     keeps it; it only moves when someone gets strictly ahead. If the leader drops back and several players
+     share the top, it goes to whoever reached that score first. Nobody wears it at the starting 2 points. */
+  function updateCrown(s) {
+    if (s.phase === 'ended') { s.crown = s.winner; return; }
+    const v = s.players.map((_, i) => publicVP(s, i));
+    if (!s.pvp || s.pvp.length !== v.length) { s.pvp = v.slice(); s.vpSince = v.map(() => 0); }
+    s.vpTick = (s.vpTick || 0) + 1;
+    v.forEach((x, i) => { if (x !== s.pvp[i]) { s.pvp[i] = x; s.vpSince[i] = s.vpTick; } });
+    const max = Math.max(...v);
+    if (max <= 2) { s.crown = -1; return; }
+    const top = v.map((x, i) => (x === max ? i : -1)).filter(i => i >= 0);
+    if (top.includes(s.crown)) return; // a tie doesn't take the crown away
+    s.crown = top.sort((a, b) => s.vpSince[a] - s.vpSince[b] || a - b)[0];
   }
 
   function nextTurn(s) {
