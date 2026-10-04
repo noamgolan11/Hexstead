@@ -38,6 +38,7 @@ function toast(msg, kind) {
   t.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   t.textContent = msg;
   box.appendChild(t);
+  Sound.play(kind === 'error' ? 'error' : 'blip');
   setTimeout(() => t.remove(), kind === 'error' ? 4200 : 3000);
   while (box.children.length > 3) box.firstChild.remove();
 }
@@ -60,6 +61,80 @@ function render() {
   if (app.ui.lastView !== vk) { app.ui.lastView = vk; try { window.scrollTo(0, 0); } catch (e) { } }
   if (app.view === 'home') renderHome(); else renderRoom();
   renderModal();
+  if (app.view === 'room' && app.g && app.g.view) gameSounds(app.g.view);
+}
+
+/* ---------- sound: play each new game event once ---------- */
+function soundFor(e, me) {
+  switch (e.k) {
+    case 'start': return ['start', null, 0.4];
+    case 'roll': return ['dice', null, 0.55];
+    case 'gain': return e.p === me ? ['gain', { res: e.res }, 0.35] : null;
+    case 'build': return [e.what === 'road' ? 'road' : e.what === 'city' ? 'city' : 'settlement', { soft: e.p !== me }, 0.18];
+    case 'buyDev': return ['card'];
+    case 'play': return e.card === 'monopoly' ? null : [e.card === 'knight' ? 'knight' : 'dev', null, 0.25];
+    case 'robber': return ['robber', null, 0.35];
+    case 'steal': return e.q === me ? ['stolen'] : ['steal', { me: e.p === me }];
+    case 'discard': return ['discard'];
+    case 'bank': return ['coin'];
+    case 'offer': return e.p !== me ? ['offer'] : null;
+    case 'counter': return e.q === me ? ['offer'] : null;
+    case 'trade': return ['traded'];
+    case 'mono': return ['monopoly', null, 0.4];
+    case 'lr': case 'la': return ['award', null, 0.4];
+    case 'lrLost': return ['lost'];
+    case 'turn': return e.p === me ? ['yourTurn', null, 0.3] : ['tock'];
+    case 'timeout': return ['alert'];
+    case 'autoOn': case 'autoOff': return ['blip'];
+    case 'win': return [me < 0 || e.p === me ? 'win' : 'lose'];
+  }
+  return null;
+}
+function gameSounds(d) {
+  const S = app.ui.snd || (app.ui.snd = {});
+  const s = d.game;
+  const me = myIndexIn(d);
+  const lastChat = (d.chat || [])[(d.chat || []).length - 1];
+  const lastId = s && s.log.length ? (s.log[s.log.length - 1].id || 0) : 0;
+  if (S.code !== d.code) { // first look at this table: remember where we are, play nothing
+    Object.assign(S, { code: d.code, gameKey: d.startedAt, logId: lastId, seats: d.seats.length, chatAt: lastChat ? lastChat.at : 0, trade: '', need: '', special: '' });
+    return;
+  }
+  if (d.seats.length !== S.seats && d.status === 'lobby') Sound.play(d.seats.length > S.seats ? 'join' : 'leave');
+  S.seats = d.seats.length;
+  if (lastChat && lastChat.at > S.chatAt) { if (lastChat.uid !== myUid()) Sound.play('chat'); S.chatAt = lastChat.at; }
+  if (!s) return;
+  if (d.startedAt !== S.gameKey) { S.gameKey = d.startedAt; S.logId = 0; } // a new game or rematch: play from its start
+  if (lastId < S.logId) S.logId = lastId; // a predicted move was rolled back
+  let fresh = s.log.filter(e => e.id && e.id > S.logId);
+  if (fresh.length) S.logId = fresh[fresh.length - 1].id;
+  if (fresh.length > 10) fresh = fresh.slice(-4); // catching up after a pause: just the latest events
+  let delay = 0; const used = {};
+  for (const e of fresh) {
+    const r = soundFor(e, me);
+    if (!r) continue;
+    used[r[0]] = (used[r[0]] || 0) + 1;
+    if (used[r[0]] > 2) continue;
+    Sound.play(r[0], Object.assign({}, r[1] || {}, { delay }));
+    delay += r[2] != null ? r[2] : 0.12;
+  }
+  // replies to my trade offer
+  if (s.trade && s.trade.from === me) {
+    const prev = S.trade && S.trade.id === s.trade.id ? S.trade.resp : {};
+    for (const [q, r] of Object.entries(s.trade.resp)) if (prev[q] === undefined) Sound.play(r === 'decline' ? 'declined' : 'accepted', { delay });
+    S.trade = { id: s.trade.id, resp: Object.assign({}, s.trade.resp) };
+  } else S.trade = null;
+  // things I must do now
+  const need = s.phase === 'discard' && Engine.discardNeeded(s, me) ? s.rollId + ':' + s.turn : '';
+  if (need && need !== S.need) Sound.play('alert', { delay });
+  S.need = need;
+  const sp = s.phase === 'special' && s.special && s.special.q[0] === me ? s.turn + ':' + s.special.q.length : '';
+  if (sp && sp !== S.special) Sound.play('special', { delay });
+  S.special = sp;
+}
+function soundIcons() {
+  const off = Sound.get().muted;
+  document.querySelectorAll('[data-act=sound]').forEach(b => { b.innerHTML = ic(off ? 'mute' : 'sound'); b.setAttribute('aria-label', off ? 'Sound is off. Sound settings' : 'Sound settings'); });
 }
 
 /* ============================================================
@@ -70,6 +145,7 @@ function renderHome() {
   if (!el._built) {
     el._built = true;
     el.innerHTML = `
+      <div class="home-tools"><button class="btn small icon" data-act="sound" aria-label="Sound settings">${ic(Sound.get().muted ? 'mute' : 'sound')}</button></div>
       <header class="masthead">
         <div>
           <div class="eyebrow">Settle · Trade · Build</div>
@@ -284,6 +360,7 @@ function renderTopbar(g) {
     <span class="tcode">${local ? 'PRACTICE' : esc(g ? g.code : '')}</span>
     <span class="spacer"></span>
     <span class="host-note" id="hostNote">${note}</span>
+    <button class="btn small icon" data-act="sound" aria-label="Sound settings">${ic(Sound.get().muted ? 'mute' : 'sound')}</button>
     <button class="btn small" data-act="rules">Rules</button>
     ${!local && g ? '<button class="btn small" data-act="copy-invite">Invite</button>' : ''}`);
 }
@@ -547,6 +624,8 @@ function updateClock() {
   const left = Math.max(0, Math.ceil((s.deadline - Date.now() - skew) / 1000));
   el.textContent = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
   el.className = 'clock' + (left <= 10 ? ' low' : '');
+  const me = myIndexIn(g.view);
+  if (left > 0 && left <= 10 && me >= 0 && Engine.pendingActors(s).includes(me) && app.ui.lastTick !== left) { app.ui.lastTick = left; Sound.play('tick'); }
 }
 
 function renderFloatTrade(d, s, me) {
@@ -755,6 +834,9 @@ function renderModal() {
   const root = $('#modalRoot');
   if (!root) return;
   const m = currentModal();
+  const mtype = m ? m.type : null;
+  if (mtype && mtype !== app.ui.lastModal && mtype !== 'end') Sound.play('open');
+  app.ui.lastModal = mtype;
   if (!m) { setHTML(root, ''); return; }
   const g = app.g, d = g && g.view, s = d && d.game, me = myIndexIn(d);
   let body = '', wide = false, dismiss = true;
@@ -792,6 +874,14 @@ function renderModal() {
   } else if (m.type === 'mono') {
     body = `<h2>Monopoly</h2><p class="sub">Name a resource. Every other player hands you all of theirs.</p><div class="picker">${Engine.RES.map(r => `<div class="pick"><button class="whole" data-act="mono" data-r="${r}"><div class="card-res ${r}">${ic(r)}</div><span>${RES_NAME[r]}</span></button></div>`).join('')}</div>
       <div class="modal-actions"><button class="btn" data-act="close">Cancel</button></div>`;
+  } else if (m.type === 'sound') {
+    body = `<h2>Sound</h2><p class="sub">Effects play for game events. The music is a quiet background track. Press M anytime to mute or unmute everything.</p>
+      <div class="snd">
+        <label class="switch snd-all"><input type="checkbox" id="sndAll"> <span>All sound</span></label>
+        <div class="snd-row"><label class="switch"><input type="checkbox" id="sndFx"> <span>Effects</span></label><input type="range" id="sndFxVol" min="0" max="100" step="1" aria-label="Effects volume"><output id="sndFxOut"></output></div>
+        <div class="snd-row"><label class="switch"><input type="checkbox" id="sndMusic"> <span>Music</span></label><input type="range" id="sndMusicVol" min="0" max="100" step="1" aria-label="Music volume"><output id="sndMusicOut"></output></div>
+      </div>
+      <div class="modal-actions"><button class="btn" data-act="snd-test">Test effects</button><button class="btn primary" data-act="close">Done</button></div>`;
   } else if (m.type === 'rules') {
     wide = true;
     body = `<h2>How to play</h2>${rulesHTML()}<div class="modal-actions"><button class="btn primary" data-act="close">Got it</button></div>`;
@@ -804,6 +894,28 @@ function renderModal() {
     body = endScreen(d, s, me);
   }
   setHTML(root, `<div class="modal-back" ${dismiss ? 'data-act="backdrop"' : ''}><div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">${body}</div></div>`);
+  if (m.type === 'sound') bindSoundPanel();
+}
+function bindSoundPanel() {
+  const all = $('#sndAll');
+  if (!all || all._bound) return;
+  all._bound = true;
+  const fx = $('#sndFx'), fv = $('#sndFxVol'), mu = $('#sndMusic'), mv = $('#sndMusicVol');
+  const show = () => {
+    const c = Sound.get();
+    all.checked = !c.muted; fx.checked = c.sfxOn; mu.checked = c.musicOn;
+    fv.value = Math.round(c.sfxVol * 100); mv.value = Math.round(c.musicVol * 100);
+    $('#sndFxOut').textContent = fv.value + '%'; $('#sndMusicOut').textContent = mv.value + '%';
+    fx.disabled = fv.disabled = mu.disabled = mv.disabled = c.muted;
+    soundIcons();
+  };
+  show();
+  all.onchange = () => { Sound.set({ muted: !all.checked }); show(); };
+  fx.onchange = () => { Sound.set({ sfxOn: fx.checked }); show(); };
+  mu.onchange = () => { Sound.set({ musicOn: mu.checked }); show(); };
+  fv.oninput = () => { Sound.set({ sfxVol: fv.value / 100 }); $('#sndFxOut').textContent = fv.value + '%'; };
+  fv.onchange = () => Sound.play('coin');
+  mv.oninput = () => { Sound.set({ musicVol: mv.value / 100 }); $('#sndMusicOut').textContent = mv.value + '%'; };
 }
 
 function tradeCheck(s, me, a) {
@@ -887,6 +999,8 @@ function handleAct(act, ds, el) {
       return leaveRoom();
     case 'leave-now': app.ui.modal = null; return leaveRoom();
     case 'rules': app.ui.modal = { type: 'rules' }; return render();
+    case 'sound': app.ui.modal = { type: 'sound' }; return render();
+    case 'snd-test': ['dice', 'settlement', 'coin', 'yourTurn'].forEach((n, i) => Sound.play(n, { delay: i * 0.6 })); return;
     case 'copy-invite': {
       if (!g) return;
       return copyText(inviteLink(g.code), 'Invite link copied.');
@@ -972,10 +1086,14 @@ function onEdge(e) {
 function onHex(h) { send({ t: 'robber', h }); }
 
 function bindEvents() {
+  const wake = () => Sound.unlock();
+  document.addEventListener('pointerdown', wake, true);
+  document.addEventListener('keydown', wake, true);
   document.addEventListener('click', e => {
     const t = e.target.closest('[data-act]');
     if (t) {
       if (t.disabled) return;
+      if (t.dataset.act !== 'backdrop') Sound.play(t.dataset.act === 'step' ? 'step' : 'click');
       if (t.dataset.act === 'backdrop' && e.target !== t) return;
       if (t.dataset.act === 'backdrop') { if (app.ui.modal) { app.ui.modal = null; render(); } return; }
       handleAct(t.dataset.act, t.dataset, t);
@@ -987,6 +1105,14 @@ function bindEvents() {
     if (app.ui.costs && !e.target.closest('.costs-pop')) { app.ui.costs = false; render(); }
   });
   document.addEventListener('keydown', e => {
+    if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''))) {
+      const off = !Sound.get().muted;
+      Sound.set({ muted: off });
+      soundIcons();
+      if ($('#sndAll')) { $('#sndAll')._bound = false; bindSoundPanel(); }
+      toast(off ? 'Sound off. Press M to turn it back on.' : 'Sound on.');
+      return;
+    }
     if (e.key !== 'Escape') return;
     if (app.ui.modal) { app.ui.modal = null; render(); return; }
     if (app.ui.mode || app.ui.costs) { app.ui.mode = null; app.ui.costs = false; render(); }

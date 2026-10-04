@@ -142,7 +142,7 @@ class Table {
         if (!self && !(this.canManage(uid) && !this.online().has(p.uid))) fail('You can only do that for players who are away.');
         if (!a.on && !self) fail('Only that player can take their seat back.');
         p.auto = !!a.on;
-        d.game.log.push({ k: a.on ? 'autoOn' : 'autoOff', p: i, turn: d.game.turn });
+        Engine.addLog(d.game, { k: a.on ? 'autoOn' : 'autoOff', p: i });
         return;
       }
       default: {
@@ -206,7 +206,7 @@ class Table {
       const a = Bot.decide(st, p, rng, { autopilot: true });
       if (!a) break;
       try { d.game = Engine.apply(st, p, a, rng); changed = true; } catch (e) { console.error('autopilot', e); break; }
-      if (n === 0) d.game.log.push({ k: 'timeout', p, turn: d.game.turn });
+      if (n === 0) Engine.addLog(d.game, { k: 'timeout', p });
       if (a.t !== 'cancel') break;
     }
     if (changed) { this.deadlineKey = ''; this.changed(); }

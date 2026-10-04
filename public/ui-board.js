@@ -43,6 +43,8 @@ const ICON_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidd
 <symbol id="i-monopoly" viewBox="0 0 24 24"><path d="M4 4h16l-6 8v6l-4 2v-8z" fill="currentColor"/></symbol>
 <symbol id="i-vp" viewBox="0 0 24 24"><path d="m12 2.8 2.8 5.8 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 3 1.1-6.3L2.9 9.5l6.3-.9z" fill="currentColor"/></symbol>
 <symbol id="i-army" viewBox="0 0 24 24"><path d="M12 2.8 19 5.6v5.6c0 4.6-3 8.3-7 9.9-4-1.6-7-5.3-7-9.9V5.6z" fill="currentColor"/></symbol>
+<symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+<symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
 <symbol id="i-robber" viewBox="0 0 24 24"><path d="M6.5 21c0-6 1.5-8.5 3-9.5-1.8-1.2-1.8-6.5 2.5-6.5s4.3 5.3 2.5 6.5c1.5 1 3 3.5 3 9.5z" fill="currentColor"/></symbol>
 </defs></svg>`;
 

@@ -310,6 +310,16 @@ aside.side { border-left: 1px solid var(--line); background: var(--panel); displ
 .toast.error { border-color: #7a3229; background: #3a1d1b; color: #ffd0c9; }
 @keyframes tin { from { opacity: 0; transform: translateY(-6px) } to { opacity: 1; transform: none } }
 
+/* ---------- sound ---------- */
+#home { position: relative; }
+.home-tools { position: absolute; top: 18px; right: 16px; z-index: 2; }
+.snd { display: flex; flex-direction: column; gap: 14px; margin: 4px 0 6px; }
+.snd-all { font-weight: 700; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.snd-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) 48px; gap: 12px; align-items: center; }
+.snd-row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+.snd input[type=range] { width: 100%; accent-color: var(--brass); }
+.snd input[type=range]:disabled { opacity: .4; }
+
 /* ---------- map picker ---------- */
 .maps { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
 .map-card { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px 9px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; color: var(--ink); min-width: 0; }

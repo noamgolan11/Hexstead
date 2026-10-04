@@ -23,6 +23,7 @@ const FILES = {
   '/engine.js': ['shared/engine.js', JS],
   '/bot.js': ['shared/bot.js', JS],
   '/net.js': ['public/net.js', JS],
+  '/audio.js': ['public/audio.js', JS],
   '/ui-board.js': ['public/ui-board.js', JS],
   '/ui.js': ['public/ui.js', JS],
 };

@@ -377,6 +377,8 @@ const Engine = (() => {
 
   function log(s, e) {
     e.turn = s.turn;
+    s.logId = (s.logId || 0) + 1;
+    e.id = s.logId;
     s.log.push(e);
     if (s.log.length > 160) s.log.splice(0, s.log.length - 160);
   }
@@ -885,6 +887,7 @@ const Engine = (() => {
   function apply(s, p, a, rng) { const n = clone(s); act(n, p, a, rng); return n; }
 
   return {
+    addLog: log,
     RES, T2R, COST, PIECES, DEV_COUNTS, DEV_COUNTS_BIG, PIPS, BANK_START, MAPS, MAP_ORDER, mapInfo, DEFAULT_SETTINGS,
     topo, buildTopology, genBoard, newGame, act, apply, clone, total, has, addRes, emptyRes, cleanRes, shuffle,
     piecesLeft, publicVP, vp, vpCards, playable, rates, portAt, settlementOk, roadOk,
