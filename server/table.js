@@ -23,6 +23,7 @@ class Table {
     this.subs = new Set();      // sockets watching this table
     this.botTimer = null;
     this.deadlineKey = '';
+    this.tradeSeen = { id: null, at: 0 }; // when the open offer appeared, so bots know how long they've waited
   }
   static restore(doc, hooks) {
     const t = new Table(doc.code, doc.owner, hooks);
@@ -88,7 +89,18 @@ class Table {
         if (d.status !== 'lobby') fail('The game has started.');
         if (d.seats.length >= d.settings.maxPlayers) fail('The table is full.');
         const used = new Set(d.seats.map(s => s.nick));
-        d.seats.push({ uid: null, bot: true, nick: BOT_NAMES.find(n => !used.has(n)) || 'Bot', color: freeColor() });
+        const lastBot = [...d.seats].reverse().find(s => s.bot);
+        const level = Bot.LEVELS.includes(a.level) ? a.level : (lastBot && lastBot.level) || 'normal';
+        d.seats.push({ uid: null, bot: true, nick: BOT_NAMES.find(n => !used.has(n)) || 'Bot', color: freeColor(), level });
+        return;
+      }
+      case 'botLevel': {
+        if (!this.canManage(uid)) fail('Only the host can change bots.');
+        if (d.status !== 'lobby') fail('The game has started.');
+        const seat = d.seats[a.i | 0];
+        if (!seat || !seat.bot) fail('That seat isn\'t a bot.');
+        if (!Bot.LEVELS.includes(a.level)) fail('Unknown difficulty.');
+        seat.level = a.level;
         return;
       }
       case 'kick': {
@@ -228,6 +240,7 @@ class Table {
     if (!this.botActors(s).length) return;
     const nobodyWatching = this.subs.size === 0;
     let delay = s.phase === 'setup' ? 850 : s.phase === 'roll' ? 750 : s.trade ? 1100 : 650;
+    if (s.trade && s.trade.drafting && Object.keys(s.trade.drafting).some(i => this.isBotSeat(s, +i))) delay = 1900; // a bot "thinking" about a counter
     if (nobodyWatching || s.players.every((p, i) => this.isBotSeat(s, i))) delay = 300;
     this.botTimer = setTimeout(() => this.runBot(), delay);
   }
@@ -236,16 +249,23 @@ class Table {
     if (!s || d.status !== 'playing') return;
     const actors = this.botActors(s);
     if (!actors.length) return;
-    const p = actors[0];
-    const view = Engine.redact(s, p); // bots only see what a person in their seat would
-    const a = Bot.decide(view, p, rng);
-    if (!a) return;
-    try { d.game = Engine.apply(s, p, a, rng); }
-    catch (e) {
-      const b = Bot.decide(view, p, rng, { autopilot: true });
-      try { d.game = Engine.apply(s, p, b, rng); } catch (e2) { console.error('bot stuck', a, b, e2.message); return; }
+    if (s.trade && s.trade.id !== this.tradeSeen.id) this.tradeSeen = { id: s.trade.id, at: Date.now() };
+    const tradeAge = s.trade ? Date.now() - this.tradeSeen.at : 0;
+    for (const p of actors) {
+      const view = Engine.redact(s, p); // bots only see what a person in their seat would
+      const a = Bot.decide(view, p, rng, { tradeAge });
+      if (!a) continue; // e.g. a bot waiting for answers to its offer
+      try { d.game = Engine.apply(s, p, a, rng); }
+      catch (e) {
+        const b = Bot.decide(view, p, rng, { autopilot: true });
+        try { d.game = Engine.apply(s, p, b, rng); } catch (e2) { console.error('bot stuck', a, b, e2.message); return; }
+      }
+      this.changed();
+      return;
     }
-    this.changed();
+    // everyone is waiting on people; look again soon so an unanswered offer doesn't hang
+    clearTimeout(this.botTimer);
+    this.botTimer = setTimeout(() => this.runBot(), 1500);
   }
   stop() { clearTimeout(this.botTimer); }
 

@@ -45,6 +45,35 @@ const Engine = (() => {
       coords: () => fromCols([[2, 4, 6, 8, 10, 12, 14], [1, 3, 5, 7, 9, 11, 13], [0, 2, 4, 6, 8, 10, 12]]),
       terrains: terr(5, 4, 4, 4, 3, 1), ports: 10,
     },
+    islet: {
+      name: 'Islet', blurb: 'A tiny island for quick 2–3 player games. Try 8 points to win.', min: 2, max: 3,
+      coords: () => fromCols([[2, 4, 6], [1, 3, 5, 7], [2, 4, 6], [3, 5]]),
+      terrains: terr(3, 2, 2, 2, 2, 1), ports: 7,
+    },
+    threeisles: {
+      name: 'Three Isles', blurb: 'Three small islands with no bridges between them.', min: 2, max: 4,
+      coords: () => centerCoords([[0, 0], [4, -4], [4, 0]].flatMap(([q, r]) => [[0, 0], ...NEIGH].map(([dq, dr]) => ({ q: q + dq, r: r + dr })))),
+      terrains: terr(5, 4, 4, 4, 3, 1), ports: 10,
+    },
+    diamond: {
+      name: 'Diamond', blurb: 'A tall diamond: a crowded middle and long, narrow points.', min: 2, max: 4,
+      coords: () => fromCols([[6], [5, 7], [4, 6, 8], [3, 5, 7, 9], [2, 4, 6, 8, 10], [3, 5, 7, 9], [4, 6, 8], [5, 7], [6]]),
+      terrains: terr(6, 4, 5, 5, 4, 1), ports: 10,
+    },
+    highlands: {
+      name: 'Highlands', blurb: 'Mountains and fields everywhere, little clay: a race to cities.', min: 2, max: 4,
+      coords: () => radiusCoords(2), terrains: terr(3, 2, 3, 5, 5, 1), ports: 9,
+    },
+    wildwood: {
+      name: 'Wildwood', blurb: 'Forests and clay pits galore, scarce ore: a race for roads and land.', min: 2, max: 4,
+      coords: () => fromCols([[4, 6, 8, 10], [3, 5, 7, 9, 11], [2, 4, 6, 8, 10], [3, 5, 7, 9, 11], [4, 6, 8, 10]]),
+      terrains: terr(6, 6, 4, 4, 2, 1), ports: 10,
+    },
+    atoll: {
+      name: 'Atoll', blurb: 'A wide ring of land around a big lagoon, for up to 6 players.', min: 2, max: 6, big: true,
+      coords: () => radiusCoords(3).filter(c => Math.max(Math.abs(c.q), Math.abs(c.r), Math.abs(c.q + c.r)) >= 2),
+      terrains: terr(6, 5, 6, 6, 5, 2), ports: 11,
+    },
     grand: {
       name: 'Grand Isle', blurb: 'A 30-hex island for up to 6 players, with a bigger bank and deck.', min: 2, max: 6, big: true,
       coords: () => fromCols([[4, 6, 8], [3, 5, 7, 9], [2, 4, 6, 8, 10], [1, 3, 5, 7, 9, 11], [2, 4, 6, 8, 10], [3, 5, 7, 9], [4, 6, 8]]),
@@ -55,7 +84,7 @@ const Engine = (() => {
       coords: (rng, n) => randomIsland(n >= 5 ? 28 : 19, rng), terrains: null, ports: null,
     },
   };
-  const MAP_ORDER = ['standard', 'lagoon', 'crescent', 'twins', 'coast', 'grand', 'uncharted'];
+  const MAP_ORDER = ['standard', 'islet', 'lagoon', 'crescent', 'twins', 'threeisles', 'coast', 'diamond', 'highlands', 'wildwood', 'grand', 'atoll', 'uncharted'];
 
   function rep(x, n) { return Array(n).fill(x); }
   function radiusCoords(R) {
@@ -351,7 +380,7 @@ const Engine = (() => {
     const big = !!def.big || cfg.players.length >= 5;
     const board = genBoard({ map: st.map, layout: st.layout, players: cfg.players.length }, rng);
     const T = topo({ board });
-    const players = shuffle(cfg.players.map(p => ({ uid: p.uid || null, bot: !!p.bot, nick: p.nick || '', color: p.color })), rng)
+    const players = shuffle(cfg.players.map(p => ({ uid: p.uid || null, bot: !!p.bot, nick: p.nick || '', color: p.color, level: p.bot ? (['easy', 'normal', 'hard'].includes(p.level) ? p.level : 'normal') : undefined })), rng)
       .map(p => Object.assign(p, { res: emptyRes(), dev: [], newDev: {}, knights: 0, devUsed: 0 }));
     const deck = [];
     const counts = big ? DEV_COUNTS_BIG : DEV_COUNTS;
@@ -812,6 +841,14 @@ const Engine = (() => {
           need(has(P.res, s.trade.get), 'You don\'t have the cards they want.');
           s.trade.resp[p] = 'accept';
         } else s.trade.resp[p] = 'decline';
+        if (s.trade.drafting) delete s.trade.drafting[p];
+        break;
+      }
+      case 'draft': {
+        need(s.trade && s.trade.id === a.id, 'That offer is gone.');
+        need(p !== s.trade.from, 'This is your own offer.');
+        s.trade.drafting = s.trade.drafting || {};
+        if (a.on) s.trade.drafting[p] = true; else delete s.trade.drafting[p];
         break;
       }
       case 'counter': {
@@ -822,6 +859,7 @@ const Engine = (() => {
         for (const r of RES) if (give[r] && get[r]) throw err('You can\'t trade a resource for itself.');
         need(has(P.res, give), 'You don\'t have those cards.');
         s.trade.resp[p] = { give, get };
+        if (s.trade.drafting) delete s.trade.drafting[p];
         log(s, { k: 'counter', p, q: s.trade.from, give, get });
         break;
       }

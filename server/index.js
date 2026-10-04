@@ -101,6 +101,29 @@ function unsubscribe(ws) {
   ws.table = null;
   hooks.broadcast(t);
 }
+/* ---------------- chat translation (fallback when the browser can't reach the service itself) ---------------- */
+const TR_URL = process.env.TRANSLATE_URL || 'https://api.mymemory.translated.net/get';
+const trCache = new Map();
+const decodeEntities = t => String(t).replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+async function translate(text, to) {
+  const key = to + '|' + text;
+  if (trCache.has(key)) return trCache.get(key);
+  let url = TR_URL + '?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent('autodetect|' + to);
+  if (process.env.MYMEMORY_EMAIL) url += '&de=' + encodeURIComponent(process.env.MYMEMORY_EMAIL);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  let j;
+  try { j = await (await fetch(url, { signal: ctl.signal })).json(); } finally { clearTimeout(timer); }
+  const d = (j && j.responseData) || {};
+  const status = Number(j && j.responseStatus);
+  let out;
+  if (status === 403 && /DISTINCT LANGUAGES/i.test(String(j.responseDetails || d.translatedText))) out = { same: true };
+  else if (status !== 200 || !d.translatedText || /^MYMEMORY WARNING/i.test(d.translatedText)) out = { err: /QUOTA|ALL AVAILABLE FREE/i.test(String(d.translatedText) + j.responseDetails) ? 'quota' : 'failed' };
+  else out = { text: decodeEntities(d.translatedText).slice(0, 400), from: String(d.detectedLanguage || '').slice(0, 12) };
+  if (!out.err) { trCache.set(key, out); if (trCache.size > 2000) trCache.delete(trCache.keys().next().value); }
+  return out;
+}
+
 function uidOf(token) { return 'p_' + crypto.createHash('sha256').update('hexstead:' + token).digest('hex').slice(0, 20); }
 const cleanNick = n => String(n || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 18);
 
@@ -139,6 +162,16 @@ function handle(ws, m) {
       return;
     }
     case 'close': return unsubscribe(ws);
+    case 'translate': {
+      const id = String(m.id || '').slice(0, 40);
+      const text = String(m.text || '').trim().slice(0, 200);
+      const to = /^[a-z]{2}(-[A-Za-z]{2})?$/.test(m.to) ? m.to : 'en';
+      if (!text) return send(ws, { t: 'translated', id, err: 'failed' });
+      ws.trUsed = (ws.trUsed || 0) + 1;
+      if (ws.trUsed > 120) return send(ws, { t: 'translated', id, err: 'quota' });
+      translate(text, to).then(r => send(ws, Object.assign({ t: 'translated', id }, r)), () => send(ws, { t: 'translated', id, err: 'failed' }));
+      return;
+    }
     case 'act': {
       const t = tables.get(String(m.code || ''));
       if (!t) return send(ws, { t: 'missing', code: m.code });

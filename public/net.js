@@ -2,7 +2,7 @@
    HEXSTEAD CLIENT NET — talks to the game server over a WebSocket.
    The server owns every online table. Practice games run locally.
    ============================================================ */
-const HEXSTEAD_VERSION = '1.2.2';
+const HEXSTEAD_VERSION = '2.0';
 const COLORS = [
   { id: 'red', name: 'Crimson', hex: '#d8463b' },
   { id: 'blue', name: 'Cobalt', hex: '#3b78e0' },
@@ -13,7 +13,7 @@ const COLORS = [
 ];
 const COLOR_HEX = Object.fromEntries(COLORS.map(c => [c.id, c.hex]));
 const BOT_NAMES = ['Ada', 'Bram', 'Cleo', 'Dov', 'Esme', 'Finn', 'Gus', 'Hana'];
-const META_ACTS = new Set(['join', 'leave', 'nick', 'color', 'addBot', 'kick', 'settings', 'start', 'chat', 'rematch', 'autoplay']);
+const META_ACTS = new Set(['join', 'leave', 'nick', 'color', 'addBot', 'botLevel', 'kick', 'settings', 'start', 'chat', 'rematch', 'autoplay']);
 // actions whose result depends on dice, hidden cards or other players' hands: never predicted locally
 const RANDOM_ACTS = new Set(['roll', 'buyDev', 'steal', 'robber', 'confirm']);
 
@@ -109,6 +109,7 @@ function onMessage(m) {
       return;
     }
     case 'error': toast(m.m || 'Something went wrong.', 'error'); return;
+    case 'translated': { const f = trWaiting.get(m.id); if (f) { trWaiting.delete(m.id); f(m); } return; }
     case 'pong': if (Number.isFinite(m.now) && app.g && !app.g.local) app.g.skew = m.now - Date.now(); return;
   }
 }
@@ -161,7 +162,7 @@ function startPractice(opts) {
   const names = Engine.shuffle(BOT_NAMES.slice(), rng);
   for (let i = 0; i < opts.bots; i++) {
     const c = COLORS.find(c => !used.has(c.id)); used.add(c.id);
-    doc.seats.push({ uid: null, bot: true, nick: names[i], color: c.id });
+    doc.seats.push({ uid: null, bot: true, nick: names[i], color: c.id, level: Bot.LEVELS.includes(opts.level) ? opts.level : 'normal' });
   }
   g.doc = doc;
   g.host = new LocalHost(g);
@@ -232,6 +233,37 @@ function send(a) {
   return true;
 }
 
+/* ---------------- chat translation ----------------
+   The browser asks the free MyMemory service directly (each person has their own daily allowance);
+   if that fails, the game server asks on its behalf. */
+const TRANSLATE_URL = 'https://api.mymemory.translated.net/get';
+const trWaiting = new Map();
+function parseTranslation(j) {
+  const d = (j && j.responseData) || {};
+  const status = Number(j && j.responseStatus);
+  if (status === 403 && /DISTINCT LANGUAGES/i.test(String(j.responseDetails || d.translatedText))) return { same: true };
+  if (status !== 200 || !d.translatedText || /^MYMEMORY WARNING/i.test(d.translatedText)) return { err: /QUOTA|ALL AVAILABLE FREE/i.test(String(d.translatedText) + j.responseDetails) ? 'quota' : 'failed' };
+  const tmp = document.createElement('textarea'); tmp.innerHTML = d.translatedText; // decodes &#39; and friends; never inserted into the page
+  return { text: tmp.value.slice(0, 400), from: String(d.detectedLanguage || '').slice(0, 12) };
+}
+async function translateText(text, to) {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 7000);
+    const r = await fetch(TRANSLATE_URL + '?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent('autodetect|' + to), { signal: ctl.signal });
+    clearTimeout(timer);
+    const out = parseTranslation(await r.json());
+    if (!out.err || out.err === 'quota') return out;
+  } catch (e) { /* blocked or offline: try through the server */ }
+  if (!onlineReady()) return { err: 'failed' };
+  return new Promise(resolve => {
+    const id = randId(12);
+    const timer = setTimeout(() => { trWaiting.delete(id); resolve({ err: 'failed' }); }, 12000);
+    trWaiting.set(id, m => { clearTimeout(timer); resolve(m); });
+    wsSend({ t: 'translate', id, text, to });
+  });
+}
+
 function setHash(code) {
   try { history.replaceState(null, '', code ? '#' + code : location.pathname + location.search); } catch (e) { }
 }
@@ -244,6 +276,7 @@ class LocalHost {
   constructor(g) {
     this.g = g; this.doc = g.doc;
     this.botTimer = null; this.stopped = false;
+    this.tradeSeen = { id: null, at: 0 };
   }
   stop() { this.stopped = true; clearTimeout(this.botTimer); }
   submit(uid, a) {
@@ -278,7 +311,8 @@ class LocalHost {
     if (this.stopped || d.status !== 'playing' || !d.game) return;
     const s = d.game;
     if (!this.botActors(s).length) return;
-    const delay = s.phase === 'setup' ? 850 : s.phase === 'roll' ? 750 : s.trade ? 1100 : 650;
+    let delay = s.phase === 'setup' ? 850 : s.phase === 'roll' ? 750 : s.trade ? 1100 : 650;
+    if (s.trade && s.trade.drafting && Object.keys(s.trade.drafting).some(i => s.players[+i].bot)) delay = 1900;
     this.botTimer = setTimeout(() => this.runBot(), delay);
   }
   runBot() {
@@ -287,15 +321,21 @@ class LocalHost {
     if (!s || d.status !== 'playing') return;
     const actors = this.botActors(s);
     if (!actors.length) return;
-    const p = actors[0];
-    const view = Engine.redact(s, p); // bots only see what a person in their seat would
-    const a = Bot.decide(view, p, rng);
-    if (!a) return;
-    try { d.game = Engine.apply(s, p, a, rng); }
-    catch (e) {
-      const b = Bot.decide(view, p, rng, { autopilot: true });
-      try { d.game = Engine.apply(s, p, b, rng); } catch (e2) { console.warn('bot stuck', a, b, e2); return; }
+    if (s.trade && s.trade.id !== this.tradeSeen.id) this.tradeSeen = { id: s.trade.id, at: Date.now() };
+    const tradeAge = s.trade ? Date.now() - this.tradeSeen.at : 0;
+    for (const p of actors) {
+      const view = Engine.redact(s, p); // bots only see what a person in their seat would
+      const a = Bot.decide(view, p, rng, { tradeAge });
+      if (!a) continue; // a bot waiting for answers to its offer
+      try { d.game = Engine.apply(s, p, a, rng); }
+      catch (e) {
+        const b = Bot.decide(view, p, rng, { autopilot: true });
+        try { d.game = Engine.apply(s, p, b, rng); } catch (e2) { console.warn('bot stuck', a, b, e2); return; }
+      }
+      this.changed();
+      return;
     }
-    this.changed();
+    clearTimeout(this.botTimer);
+    this.botTimer = setTimeout(() => this.runBot(), 1500);
   }
 }

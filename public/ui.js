@@ -5,6 +5,8 @@ app.ui.practice = { bots: 3, vp: 10, layout: 'balanced', friendly: false };
 app.ui.fresh = new Map();
 app.ui.prevPieces = null;
 app.ui.glowRoll = null;
+const LEVEL_NAME = { easy: 'Easy bot', normal: 'Normal bot', hard: 'Hard bot' };
+const LEVEL_HELP = { easy: 'Learning the game: so-so spots, rarely trades', normal: 'Plays a solid game and trades when one card short', hard: 'Best spots, trades and counters aggressively, races for Largest Army' };
 
 /* ---------- names ---------- */
 function seatName(x) {
@@ -253,6 +255,7 @@ function renderPractice() {
   setHTML($('#practiceOpts'), `<div class="field" style="margin-bottom:12px"><span class="lbl">Map</span>${mapPicker('pmap', p.map)}<span class="note">${esc(m.blurb)}</span></div>
     <div class="settings-grid">
     <div class="field"><span class="lbl">Opponents</span><div class="seg" role="group" aria-label="Number of bots">${[1, 2, 3, 4, 5].filter(n => n <= maxBots).map(n => `<button data-act="pbots" data-n="${n}" aria-pressed="${p.bots === n}">${n}</button>`).join('')}</div></div>
+    <div class="field"><span class="lbl">Bot difficulty</span><div class="seg" role="group" aria-label="Bot difficulty">${Bot.LEVELS.map(l => `<button data-act="plevel" data-v="${l}" aria-pressed="${(p.level || 'normal') === l}" title="${esc(LEVEL_HELP[l])}">${l[0].toUpperCase() + l.slice(1)}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl">Points to win</span>${stepper('pvp', p.vp, 5, 20)}</div>
     <div class="field"><span class="lbl">Board</span><div class="seg" role="group" aria-label="Board layout">${[['random', 'Random'], ['balanced', 'Balanced']].map(([k, l]) => `<button data-act="playout" data-v="${k}" aria-pressed="${p.layout === k}">${l}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl">Friendly robber</span><label class="switch"><input type="checkbox" id="pfriendly" ${p.friendly ? 'checked' : ''}> <span class="note">Protect players with 2 points or fewer</span></label></div>
@@ -277,7 +280,7 @@ function rulesHTML() {
   return `<div class="rules-cols">
     <div><h4>Build costs</h4><div class="costs">
       ${row('Road', c.road)}${row('Settlement', c.settlement, '1 point')}${row('City', c.city, '2 points')}${row('Development card', c.dev)}
-    </div></div>
+    </div><p style="margin:8px 0 0">Everyone has ${Engine.PIECES.road} roads, ${Engine.PIECES.settlement} settlements and ${Engine.PIECES.city} cities. A city replaces a settlement, which goes back to your supply. Point at (or press and hold) a build button to see every spot it could go.</p></div>
     <div><h4>Your turn</h4><ul>
       <li>Roll the dice. Every hex showing that number pays its neighbours: 1 card per settlement, 2 per city.</li>
       <li>Build, buy development cards, and trade with the bank (4:1, or better at a harbour) or with other players.</li>
@@ -300,6 +303,12 @@ function rulesHTML() {
     <div><h4>Playing online</h4><ul>
       <li>Open a table and send the invite link. Friends pick a name and take a seat; no accounts needed.</li>
       <li>If someone drops, they can reopen the link to rejoin from the same browser. The host can let a bot play for anyone who's away.</li>
+      <li>Tap the translate icon next to a chat message to read it in English.</li>
+    </ul></div>
+    <div><h4>Trading and bots</h4><ul>
+      <li>Offer cards to everyone; each player can accept, decline, or send a counter-offer. You pick who to trade with.</li>
+      <li>A quill next to a name means that player is writing a counter-offer. A crown marks whoever is in the lead.</li>
+      <li>Bots come in three levels. Easy bots learn the ropes, Normal bots play a solid game, Hard bots grab the best spots and trade hard.</li>
     </ul></div>
   </div>`;
 }
@@ -355,7 +364,7 @@ function renderTopbar(g) {
     else if (d) note = 'Host: ' + esc(uidName(d, d.owner));
   }
   setHTML($('#topbar'), `
-    <button class="btn small" data-act="home">← Tables</button>
+    <button class="btn small" data-act="home" aria-label="Back to tables">←<span class="hide-sm"> Tables</span></button>
     <div class="brand">Hex<span>stead</span></div>
     <span class="tcode">${local ? 'PRACTICE' : esc(g ? g.code : '')}</span>
     <span class="spacer"></span>
@@ -383,8 +392,9 @@ function renderLobby(stage, d) {
     <p class="note" style="margin-top:8px">Send the link to your friends. They open it, type a name, and take a seat. They can also enter the code on the home page.</p>`);
   const seats = d.seats.map((s, i) => `<div class="seat">
       <div class="row" style="justify-content:space-between"><span class="sw" style="background:${COLOR_HEX[s.color]}"></span>
-        <span class="row" style="gap:6px">${s.uid === d.owner ? '<span class="chip brass">Host</span>' : ''}${s.bot ? '<span class="chip">Bot</span>' : ''}${s.uid === me ? '<span class="chip ok">You</span>' : ''}${!s.bot && !g.local ? `<span class="dot${online.has(s.uid) || s.uid === me ? ' on' : ''}" title="${online.has(s.uid) || s.uid === me ? 'Online' : 'Not here right now'}"></span>` : ''}</span></div>
+        <span class="row" style="gap:6px">${s.uid === d.owner ? '<span class="chip brass">Host</span>' : ''}${s.uid === me ? '<span class="chip ok">You</span>' : ''}${!s.bot && !g.local ? `<span class="dot${online.has(s.uid) || s.uid === me ? ' on' : ''}" title="${online.has(s.uid) || s.uid === me ? 'Online' : 'Not here right now'}"></span>` : ''}</span></div>
       <div class="nm">${esc(seatName(s))}</div>
+      ${s.bot ? (isOwner ? `<div class="seg mini" role="group" aria-label="${esc(seatName(s))} difficulty">${Bot.LEVELS.map(l => `<button data-act="botlvl" data-i="${i}" data-l="${l}" aria-pressed="${(s.level || 'normal') === l}" title="${esc(LEVEL_HELP[l])}">${l[0].toUpperCase() + l.slice(1)}</button>`).join('')}</div>` : `<span class="chip lvl ${s.level || 'normal'}">${LEVEL_NAME[s.level || 'normal']}</span>`) : ''}
       ${isOwner && s.uid !== d.owner ? `<button class="btn small" data-act="kick" data-i="${i}">Remove</button>` : ''}
     </div>`);
   for (let i = d.seats.length; i < d.settings.maxPlayers; i++) seats.push(`<div class="seat open"><span>Open seat</span>${isOwner ? '<button class="btn small" data-act="addbot">Add a bot</button>' : ''}</div>`);
@@ -496,7 +506,8 @@ function renderTable(stage, d) {
   if (stage._mode !== 'table') {
     stage._mode = 'table';
     stage.innerHTML = `<div class="board-wrap" id="boardWrap">
-        <svg id="board" role="img" aria-label="Game board" preserveAspectRatio="xMidYMid meet"><g id="bMain"></g><g id="bGlow"></g><g id="bTgt"></g></svg>
+        <svg id="board" role="img" aria-label="Game board" preserveAspectRatio="xMidYMid meet"><g id="bMain"></g><g id="bGlow"></g><g id="bPrev"></g><g id="bTgt"></g></svg>
+        <div class="peek-note" id="peekNote" hidden></div>
         <div class="hud hud-dice" id="hudDice"></div>
         <div class="hud hud-bank" id="hudBank"></div>
         <div class="banner-wrap"><div class="banner" id="banner" role="status"></div></div>
@@ -549,11 +560,62 @@ function renderTable(stage, d) {
   } else $('#hudDice').hidden = true;
   // bank
   setHTML($('#hudBank'), Engine.RES.map(r => `<span class="bk" title="${RES_NAME[r]} in the bank">${ri(r)}${s.bank[r]}</span>`).join('') + `<span class="bk" title="Development cards left">${ic('card', 'ri')}${s.deck.length}</span>`);
+  renderPreview();
   renderBanner(d, s, me);
   renderFloatTrade(d, s, me);
   renderDock(d, s, me);
   renderPlayers(d, s, me);
 }
+
+/* ---------- build previews: every spot a piece could go, shown while pointing at a build button ---------- */
+function previewInfo(s, me, kind) {
+  const E = Engine, T = E.topo(s), S = 100;
+  const out = [];
+  const pt = v => [(T.verts[v].x * S).toFixed(1), (T.verts[v].y * S).toFixed(1)];
+  if (kind === 'settle') {
+    const all = E.legalSettlements(s, me, true); // the distance rule only: no building on or next to the corner, anyone's
+    const near = new Set(me >= 0 ? all.filter(v => T.verts[v].edges.some(e => s.roads[e] === me)) : []);
+    for (const v of all) { const [x, y] = pt(v); const r = near.has(v) ? 16 : 13; out.push(`<circle class="pv-halo" cx="${x}" cy="${y}" r="${r + 3}"/><circle class="pv-v${near.has(v) ? ' now' : ''}" cx="${x}" cy="${y}" r="${r}"/>`); }
+    const rest = all.length - near.size;
+    return { svg: out.join(''), note: !all.length ? 'No open spots left on the island' : (near.size ? `<span class="lg now"></span>${near.size} on your roads` : (me >= 0 ? 'None on your roads yet' : '')) + (rest ? ` <span class="lg open"></span>${rest} ${near.size ? 'more ' : ''}open spot${rest === 1 ? '' : 's'}` : '') };
+  }
+  if (kind === 'road') {
+    if (me < 0) return { svg: '', note: '' };
+    const es = E.legalRoads(Object.assign({}, s, { phase: 'main' }), me);
+    for (const e of es) {
+      const Ed = T.edges[e]; const a = T.verts[Ed.a], b = T.verts[Ed.b]; const k = 0.2;
+      const c = `x1="${((a.x + (b.x - a.x) * k) * S).toFixed(1)}" y1="${((a.y + (b.y - a.y) * k) * S).toFixed(1)}" x2="${((b.x + (a.x - b.x) * k) * S).toFixed(1)}" y2="${((b.y + (a.y - b.y) * k) * S).toFixed(1)}"`;
+      out.push(`<line class="pv-eh" ${c}/><line class="pv-e" ${c}/>`);
+    }
+    return { svg: out.join(''), note: es.length ? `<span class="lg road"></span>${es.length} place${es.length === 1 ? '' : 's'} for your next road` : 'No room for a road next to your pieces' };
+  }
+  if (kind === 'city') {
+    if (me < 0) return { svg: '', note: '' };
+    const vs = E.legalCities(s, me);
+    for (const v of vs) { const [x, y] = pt(v); out.push(`<circle class="pv-halo" cx="${x}" cy="${y}" r="27"/><circle class="pv-c" cx="${x}" cy="${y}" r="24"/>`); }
+    return { svg: out.join(''), note: vs.length ? `<span class="lg city"></span>${vs.length} settlement${vs.length === 1 ? '' : 's'} you can upgrade` : 'Build a settlement first. Cities replace settlements' };
+  }
+  return { svg: '', note: '' };
+}
+function renderPreview() {
+  const g = app.g, d = g && g.view, s = d && d.game;
+  const layer = $('#bPrev'), note = $('#peekNote');
+  if (!layer || !note) return;
+  const k = app.ui.preview;
+  if (!s || !k || s.phase === 'ended' || k === app.ui.mode) { setHTML(layer, ''); note.hidden = true; return; }
+  const me = myIndexIn(d);
+  const p = previewInfo(s, me, k);
+  setHTML(layer, p.svg);
+  setHTML(note, `${ic('eye')}<span>${p.note}</span>`);
+  note.hidden = !p.note;
+}
+function togglePreview(k, sticky) {
+  clearTimeout(app.ui.previewTimer);
+  app.ui.preview = app.ui.preview === k && sticky ? null : k;
+  if (sticky && app.ui.preview) app.ui.previewTimer = setTimeout(() => { app.ui.preview = null; renderPreview(); syncPeekButtons(); }, 5000);
+  renderPreview(); syncPeekButtons();
+}
+function syncPeekButtons() { document.querySelectorAll('[data-prev]').forEach(b => b.classList.toggle('peek', b.dataset.prev === app.ui.preview)); }
 
 function targetsOnly(s, tg) {
   // boardSVG puts targets last; re-run with an empty board copy to get just the target markup
@@ -628,35 +690,66 @@ function updateClock() {
   if (left > 0 && left <= 10 && me >= 0 && Engine.pendingActors(s).includes(me) && app.ui.lastTick !== left) { app.ui.lastTick = left; Sound.play('tick'); }
 }
 
+/* little resource cards for trade terms */
+function tradeCards(res, none) {
+  const parts = [];
+  for (const r of Engine.RES) if (res && res[r]) parts.push(`<span class="tcard ${r}" title="${res[r]} ${RES_NAME[r]}">${ic(r)}${res[r] > 1 ? `<b>${res[r]}</b>` : ''}</span>`);
+  return parts.length ? `<span class="tcards">${parts.join('')}</span>` : (none || '<span class="note">nothing</span>');
+}
+function missingText(have, want) {
+  const miss = Engine.RES.filter(r => (want[r] || 0) > (have[r] || 0)).map(r => (want[r] - (have[r] || 0)) + ' more ' + RES_NAME[r].toLowerCase());
+  return miss.length ? 'You need ' + miss.join(' and ') : '';
+}
+function respStatus(s, t, q) {
+  const r = t.resp[q];
+  if (r === undefined) return t.drafting && t.drafting[q] ? `<span class="st drafting">${ic('quill')}Writing a counter<span class="dots"><i></i><i></i><i></i></span></span>` : '<span class="st wait">Deciding…</span>';
+  if (r === 'decline') return `<span class="st no">${ic('x')}Declined</span>`;
+  if (r === 'accept') return `<span class="st yes">${ic('check')}Accepts</span>`;
+  return `<span class="st counter">${ic('quill')}Counter-offer</span>`;
+}
+
 function renderFloatTrade(d, s, me) {
   const el = $('#floatTrade');
   const t = s.trade;
   if (!t || s.phase === 'ended') { setHTML(el, ''); return; }
   const from = t.from;
+  const others = s.players.map((_, i) => i).filter(i => i !== from);
   let html = '';
   if (from === me) {
-    const rows = s.players.map((pl, i) => {
-      if (i === me) return '';
+    const P = s.players[me];
+    const rows = others.map(i => {
+      const pl = s.players[i];
       const r = t.resp[i];
-      let st;
-      if (r === undefined) st = '<span class="note">Thinking…</span>';
-      else if (r === 'decline') st = '<span class="note">Declined</span>';
-      else if (r === 'accept') st = `<span class="chip ok">Accepts</span><button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}">Trade with ${esc(pName(s, i))}</button>`;
-      else st = `<span>Counter: gives ${resList(r.give)} for ${resList(r.get)}</span><button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}">Accept counter</button>`;
-      return `<div class="resp"><span class="nm" style="color:${COLOR_HEX[pl.color]}">${esc(pName(s, i))}</span>${st}</div>`;
+      let act = '';
+      if (r === 'accept') act = `<button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}">Trade</button>`;
+      else if (r && r !== 'decline') {
+        const short = missingText(P.res, r.get);
+        act = `<span class="counter-terms">they give ${tradeCards(r.give)} for ${tradeCards(r.get)}</span><button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}" ${short ? `aria-disabled="true" title="${esc(short)}"` : ''}>Accept</button>`;
+      }
+      return `<div class="resp"><span class="sw" style="background:${COLOR_HEX[pl.color]}"></span><span class="nm">${esc(pName(s, i))}</span>${respStatus(s, t, i)}<span class="resp-act">${act}</span></div>`;
     }).join('');
-    html = `<div class="float-trade"><h3>Your offer <span class="trade-terms">${resList(t.give)} <span class="arrow">for</span> ${resList(t.get)}</span></h3><div class="resp-list">${rows}</div><div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn small" data-act="cancel-offer">Close offer</button></div></div>`;
+    const waiting = others.filter(i => t.resp[i] === undefined).length;
+    html = `<div class="float-trade mine">
+      <div class="ft-top"><span class="ft-title">Your offer</span><div class="ft-deal"><span class="ft-side"><span class="lbl">You give</span>${tradeCards(t.give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side"><span class="lbl">You get</span>${tradeCards(t.get)}</span></div></div>
+      <div class="resp-list">${rows}</div>
+      <div class="ft-foot"><span class="note">${waiting ? 'Waiting for ' + waiting + ' ' + (waiting > 1 ? 'players' : 'player') + '…' : 'Everyone has answered.'}</span><button class="btn small" data-act="cancel-offer">Cancel offer</button></div></div>`;
+  } else if (me < 0) {
+    html = `<div class="float-trade"><div class="ft-top"><span class="ft-title">${pTag(s, from)} offers</span><div class="ft-deal"><span class="ft-side">${tradeCards(t.give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side">${tradeCards(t.get)}</span></div></div>
+      <div class="ft-others">${others.map(i => `<span>${pTag(s, i)} ${respStatus(s, t, i)}</span>`).join('')}</div></div>`;
   } else {
-    const r = me >= 0 ? t.resp[me] : 'watch';
-    const P = me >= 0 ? s.players[me] : null;
-    const can = P && Engine.has(P.res, t.get);
+    const r = t.resp[me];
+    const P = s.players[me];
+    const short = missingText(P.res, t.get);
     let ctl;
-    if (me < 0) ctl = '';
-    else if (r === undefined) ctl = `<button class="btn small primary" data-act="accept" data-id="${t.id}" ${can ? '' : 'disabled title="You don\'t have the cards they want"'}>Accept</button><button class="btn small" data-act="decline" data-id="${t.id}">Decline</button><button class="btn small" data-act="counter-open" data-id="${t.id}">Counter</button>`;
-    else if (r === 'accept') ctl = `<span class="note">You accepted. Waiting for ${esc(pName(s, from))}.</span>`;
-    else if (r === 'decline') ctl = '<span class="note">You declined.</span>';
-    else ctl = `<span class="note">Counter sent: you give ${resList(r.give)} for ${resList(r.get)}.</span>`;
-    html = `<div class="float-trade"><h3>${pTag(s, from)} offers</h3><div class="trade-terms">${me >= 0 ? 'You get' : 'Gives'} ${resList(t.give)} <span class="arrow">·</span> ${me >= 0 ? 'you give' : 'wants'} ${resList(t.get)}</div><div class="row" style="margin-top:10px">${ctl}</div></div>`;
+    if (r === undefined) ctl = `<button class="btn primary" data-act="accept" data-id="${t.id}" ${short ? `aria-disabled="true" title="${esc(short)}"` : ''}>${ic('check')}Accept</button><button class="btn" data-act="counter-open" data-id="${t.id}">${ic('quill')}Counter</button><button class="btn" data-act="decline" data-id="${t.id}">${ic('x')}Decline</button>${short ? `<span class="note">${esc(short)}</span>` : ''}`;
+    else if (r === 'accept') ctl = `<span class="st yes">${ic('check')}You accepted.</span><span class="note">Waiting for ${esc(pName(s, from))} to pick a partner.</span>`;
+    else if (r === 'decline') ctl = `<span class="st no">${ic('x')}You declined.</span>`;
+    else ctl = `<span class="st counter">${ic('quill')}Counter sent:</span><span class="counter-terms">you give ${tradeCards(r.give)} for ${tradeCards(r.get)}</span>`;
+    const rest = others.filter(i => i !== me);
+    html = `<div class="float-trade incoming">
+      <div class="ft-top"><span class="ft-title">${pTag(s, from)} offers you a trade</span><div class="ft-deal"><span class="ft-side"><span class="lbl">You get</span>${tradeCards(t.give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side"><span class="lbl">You give</span>${tradeCards(t.get)}</span></div></div>
+      <div class="ft-actions">${ctl}</div>
+      ${rest.length ? `<div class="ft-others">${rest.map(i => `<span>${pTag(s, i)} ${respStatus(s, t, i)}</span>`).join('')}</div>` : ''}</div>`;
   }
   setHTML(el, html);
 }
@@ -695,8 +788,10 @@ function renderDock(d, s, me) {
     city: main && E.has(P.res, E.COST.city) && left.city > 0 && E.legalCities(s, me).length > 0,
     dev: main && E.has(P.res, E.COST.dev) && s.deck.length > 0 && !busy,
   };
-  const why = (k, cost, pieces) => !main ? 'Available on your turn after rolling' : !E.has(P.res, cost) ? 'Costs ' + E.RES.filter(r => cost[r]).map(r => cost[r] + ' ' + RES_NAME[r].toLowerCase()).join(', ') : pieces <= 0 ? 'No pieces left' : 'No legal spot';
-  const btn = (k, label, icon, cost, pieces) => `<button class="btn act${app.ui.mode === k ? ' on' : ''}" data-act="mode" data-m="${k}" ${can[k] ? '' : 'disabled'} title="${esc(can[k] ? label + ' (' + E.RES.filter(r => cost[r]).map(r => cost[r] + ' ' + RES_NAME[r].toLowerCase()).join(', ') + ')' : why(k, cost, pieces))}">${ic(icon)}<span>${label}</span></button>`;
+  const costText = cost => E.RES.filter(r => cost[r]).map(r => cost[r] + ' ' + RES_NAME[r].toLowerCase()).join(', ');
+  const OUT = { road: 'All ' + E.PIECES.road + ' of your roads are on the board', settle: 'All ' + E.PIECES.settlement + ' of your settlements are on the board. Upgrading one to a city gives it back', city: 'All ' + E.PIECES.city + ' of your cities are on the board', dev: 'No development cards left' };
+  const why = (k, cost, pieces) => pieces <= 0 ? OUT[k] : !main ? 'Available on your turn after rolling' : !E.has(P.res, cost) ? 'Costs ' + costText(cost) : 'No legal spot right now';
+  const btn = (k, label, icon, cost, pieces) => `<button class="btn act${app.ui.mode === k ? ' on' : ''}${app.ui.preview === k ? ' peek' : ''}" data-act="mode" data-m="${k}" data-prev="${k}" ${can[k] ? '' : 'aria-disabled="true"'} title="${esc(can[k] ? label + ' (' + costText(cost) + ')' : why(k, cost, pieces))}">${ic(icon)}<span>${label}</span><span class="left${pieces <= 0 ? ' out' : pieces <= 2 ? ' low' : ''}" aria-label="${pieces} left">${pieces}</span></button>`;
   let actions;
   if (myTurn && s.phase === 'roll') {
     actions = `<button class="btn primary big" data-act="roll" ${busy ? 'disabled' : ''}>${ic('die')} ${busy ? 'Rolling…' : 'Roll dice'}</button>`;
@@ -707,14 +802,36 @@ function renderDock(d, s, me) {
       (special ? `<button class="btn act primary" data-act="pass" ${busy ? 'disabled' : ''}>${ic('end')}<span>Done</span></button>`
         : `<button class="btn act${main ? ' primary' : ''}" data-act="end" ${main && !busy ? '' : 'disabled'}>${ic('end')}<span>End turn</span></button>`);
   }
-  const costs = app.ui.costs ? `<div class="costs-pop"><div class="costs">${['road', 'settlement', 'city', 'dev'].map(k => `<span class="what">${k === 'dev' ? 'Dev card' : k[0].toUpperCase() + k.slice(1)}</span><span>${resList(E.COST[k])}</span>`).join('')}</div><p class="note" style="margin:8px 0 0">Pieces left: ${left.road} roads, ${left.settlement} settlements, ${left.city} cities</p></div>` : '';
+  const costs = app.ui.costs ? `<div class="costs-pop"><div class="costs">${['road', 'settlement', 'city', 'dev'].map(k => `<span class="what">${k === 'dev' ? 'Dev card' : k[0].toUpperCase() + k.slice(1)}</span><span>${resList(E.COST[k])}</span>`).join('')}</div><p class="note" style="margin:8px 0 0">Pieces left: ${left.road} of ${E.PIECES.road} roads, ${left.settlement} of ${E.PIECES.settlement} settlements, ${left.city} of ${E.PIECES.city} cities. Point at a build button to see every spot on the board.</p></div>` : '';
   setHTML(el, `<div class="hand" aria-label="Your cards">${hand}</div>${devs ? `<div class="devs">${devs}</div>` : ''}<div class="actions">${actions}<button class="btn small icon" data-act="costs" aria-label="Build costs" aria-expanded="${!!app.ui.costs}">?</button></div>${costs}`);
+}
+
+/* who wears the crown: the most points anyone can see (ties share it; nobody while everyone is level) */
+function leaders(s) {
+  if (s.phase === 'ended') return new Set([s.winner]);
+  const v = s.players.map((_, i) => Engine.publicVP(s, i));
+  const max = Math.max(...v);
+  const top = v.map((x, i) => x === max ? i : -1).filter(i => i >= 0);
+  return top.length === v.length ? new Set() : new Set(top);
+}
+/* what a player is doing with the open offer, for the players panel */
+function tradeStatus(s, i) {
+  const t = s.trade;
+  if (!t || s.phase === 'ended') return '';
+  if (i === t.from) return `<span class="tstat offer" title="Made the open offer">${ic('trade')}</span>`;
+  const r = t.resp[i];
+  if (t.drafting && t.drafting[i] && r === undefined) return `<span class="tstat drafting" title="Writing a counter-offer">${ic('quill')}<i></i><i></i><i></i></span>`;
+  if (r === 'accept') return `<span class="tstat yes" title="Accepted the offer">${ic('check')}</span>`;
+  if (r === 'decline') return `<span class="tstat no" title="Declined the offer">${ic('x')}</span>`;
+  if (r) return `<span class="tstat counter" title="Made a counter-offer">${ic('quill')}</span>`;
+  return '';
 }
 
 function renderPlayers(d, s, me) {
   const online = onlineSet();
   const ended = s.phase === 'ended';
   const g = app.g;
+  const crown = leaders(s);
   setHTML($('#players'), s.players.map((pl, i) => {
     const show = ended || i === me;
     const vp = show ? Engine.vp(s, i) : Engine.publicVP(s, i);
@@ -724,9 +841,11 @@ function renderPlayers(d, s, me) {
     const turn = !ended && (s.phase === 'special' && s.special ? s.special.q[0] === i : s.cur === i);
     const pend = s.phase === 'discard' && s.discard && s.discard[i];
     const dot = !pl.bot && !g.local ? `<span class="dot${online.has(pl.uid) || pl.uid === myUid() ? ' on' : ''}" title="${online.has(pl.uid) || pl.uid === myUid() ? 'Online' : 'Not here right now'}"></span>` : '';
+    const lvl = pl.bot && pl.level ? `<span class="chip lvl ${pl.level}" title="Bot difficulty">${LEVEL_NAME[pl.level] || 'Bot'}</span>` : pl.bot ? '<span class="chip">Bot</span>' : '';
+    const crowned = crown.has(i) ? `<span class="crown" title="${ended ? 'Winner' : 'In the lead with ' + Engine.publicVP(s, i) + ' points'}">${ic('crown')}</span>` : '';
     return `<div class="pl${turn ? ' turn' : ''}">
       <span class="bar" style="background:${COLOR_HEX[pl.color]}"></span>
-      <div class="nm"><span class="t">${esc(seatName(pl))}</span>${i === me ? '<span class="chip ok">You</span>' : ''}${pl.bot ? '<span class="chip">Bot</span>' : ''}${pl.auto ? '<span class="chip brass" title="A bot is playing this seat">Bot playing</span>' : ''}${dot}${!g.local && !ended && !pl.bot && !pl.auto && i !== me && canManage(d) && !online.has(pl.uid) ? `<button class="btn small" data-act="autoplay" data-i="${i}" data-on="1" title="${esc(seatName(pl))} isn't here. Let a bot take their turns until they come back.">Bot plays</button>` : ''}${pend ? '<span class="chip brass">Discarding</span>' : ''}${s.winner === i ? '<span class="chip brass">Winner</span>' : ''}</div>
+      <div class="nm">${crowned}<span class="t">${esc(seatName(pl))}</span>${tradeStatus(s, i)}${i === me ? '<span class="chip ok">You</span>' : ''}${lvl}${pl.auto ? '<span class="chip brass" title="A bot is playing this seat">Bot playing</span>' : ''}${dot}${!g.local && !ended && !pl.bot && !pl.auto && i !== me && canManage(d) && !online.has(pl.uid) ? `<button class="btn small" data-act="autoplay" data-i="${i}" data-on="1" title="${esc(seatName(pl))} isn't here. Let a bot take their turns until they come back.">Bot plays</button>` : ''}${pend ? '<span class="chip brass">Discarding</span>' : ''}${s.winner === i ? '<span class="chip brass">Winner</span>' : ''}</div>
       <div class="vp" title="${hidden ? 'Includes ' + hidden + ' hidden Victory Point card' + (hidden > 1 ? 's' : '') : 'Victory points'}">${vp}<small>${hidden ? '+' + hidden + ' hidden' : 'PTS'}</small></div>
       <div class="stats">
         <span title="Resource cards">${ic('cards')}${cards}</span>
@@ -765,8 +884,50 @@ function renderFeed(d) {
     if (atBottom || !logEl._scrolled) { logEl.scrollTop = logEl.scrollHeight; logEl._scrolled = true; }
   }
   const atB = stick(chatEl);
-  setHTML(chatEl, (d.chat || []).length ? d.chat.map(c => `<div class="chat-e"><span class="pn" style="color:${uidColor(d, c.uid)}">${esc(uidName(d, c.uid))}</span> ${esc(c.text)}</div>`).join('') : '<div class="note">No messages yet. Say hi.</div>');
+  setHTML(chatEl, (d.chat || []).length ? d.chat.map((c, i) => chatLine(d, c, i)).join('') : '<div class="note">No messages yet. Say hi.</div>');
   if (atB || !chatEl._scrolled) { chatEl.scrollTop = chatEl.scrollHeight; chatEl._scrolled = true; }
+}
+
+/* ---------- chat translation ---------- */
+app.tr = new Map();
+function langName(code) {
+  if (!code) return '';
+  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code.split('-')[0]) || code; } catch (e) { return code; }
+}
+function trTarget(text) {
+  // into English, as a rule; a reader whose browser speaks another language gets plain-Latin messages in their own language
+  const nav = String(navigator.language || 'en').slice(0, 2).toLowerCase();
+  if (nav !== 'en' && /^[a-z]{2}$/.test(nav) && !/[^\u0000-\u024f]/.test(text)) return nav;
+  return 'en';
+}
+function chatLine(d, c, i) {
+  const mine = c.uid === myUid();
+  const tr = app.tr.get(c.uid + ':' + c.at);
+  let out = '';
+  if (tr && tr.shown) {
+    if (tr.state === 'loading') out = '<div class="tr-out note">Translating…</div>';
+    else if (tr.state === 'same') out = `<div class="tr-out note">Already in ${esc(langName(tr.to))}.</div>`;
+    else if (tr.state === 'err') out = `<div class="tr-out note">${tr.err === 'quota' ? 'The free translator has hit its daily limit. Try again tomorrow.' : 'Couldn\'t translate that right now.'}</div>`;
+    else out = `<div class="tr-out"><span class="tr-from">${esc(langName(tr.from) || 'Translated')} → ${esc(langName(tr.to))}</span><span dir="auto">${esc(tr.text)}</span></div>`;
+  }
+  const btn = mine ? '' : `<button class="tr-btn${tr && tr.shown ? ' on' : ''}" data-act="translate" data-k="${i}" title="${tr && tr.shown ? 'Hide translation' : 'Translate'}" aria-label="${tr && tr.shown ? 'Hide translation' : 'Translate this message'}">${ic('translate')}</button>`;
+  return `<div class="chat-e"><div class="chat-row"><span class="chat-body"><span class="pn" style="color:${uidColor(d, c.uid)}">${esc(uidName(d, c.uid))}</span> <span dir="auto">${esc(c.text)}</span></span>${btn}</div>${out}</div>`;
+}
+function translateChat(d, i) {
+  const c = (d.chat || [])[i];
+  if (!c) return;
+  const key = c.uid + ':' + c.at;
+  const cur = app.tr.get(key);
+  if (cur && cur.state !== 'err') { cur.shown = !cur.shown; return renderFeed(d); }
+  const entry = { state: 'loading', shown: true, to: trTarget(c.text) };
+  app.tr.set(key, entry);
+  renderFeed(d);
+  translateText(c.text, entry.to).then(r => {
+    if (r.same) entry.state = 'same';
+    else if (r.err || !r.text) { entry.state = 'err'; entry.err = r.err; }
+    else Object.assign(entry, { state: 'done', text: r.text, from: r.from });
+    if (app.g && app.g.view) renderFeed(app.g.view);
+  });
 }
 
 function logLine(s, e, me) {
@@ -825,6 +986,12 @@ function currentModal() {
     if (s.phase === 'discard' && need) return { type: 'discard', need };
     if (s.phase === 'steal' && s.cur === me) return { type: 'steal' };
   }
+  const mm = app.ui.modal;
+  if (mm && mm.type === 'counter' && (!s || !s.trade || s.trade.id !== mm.id || (me >= 0 && s.trade.resp[me] !== undefined))) {
+    app.ui.modal = null;
+    if (!s || !s.trade || s.trade.id !== mm.id) toast('That offer was withdrawn.');
+  }
+  if (mm && mm.type === 'trade' && (!s || s.phase !== 'main' || s.cur !== me)) app.ui.modal = null;
   if (app.ui.modal) return app.ui.modal;
   if (app.view === 'room' && d && d.status === 'ended' && s && app.ui.endDismissed !== d.code + ':' + d.endedAt) return { type: 'end' };
   return null;
@@ -855,18 +1022,7 @@ function renderModal() {
     body = `<h2>Rob a neighbour</h2><p class="sub">You take one random card from the player you pick.</p><div class="victims">${s.stealCands.map(q => `<div class="victim"><span>${pTag(s, q)} <span class="note">· ${s.players[q].nCards != null ? s.players[q].nCards : Engine.total(s.players[q].res)} cards</span></span><button class="btn primary small" data-act="steal" data-q="${q}" ${busy ? 'disabled' : ''}>Rob</button></div>`).join('')}</div>`;
   } else if (m.type === 'trade' || m.type === 'counter') {
     wide = true;
-    const P = s.players[me];
-    const rt = Engine.rates(s, me);
-    const bankErr = m.type === 'trade' ? tradeCheck(s, me, { t: 'bank', give: m.give, get: m.get }) : 'x';
-    const offerErr = tradeCheck(s, me, m.type === 'trade' ? { t: 'offer', give: m.give, get: m.get } : { t: 'counter', id: m.id, give: m.give, get: m.get });
-    const title = m.type === 'trade' ? 'Trade' : 'Counter-offer to ' + esc(pName(s, s.trade ? s.trade.from : 0));
-    body = `<h2>${title}</h2><p class="sub">${m.type === 'trade' ? 'Offer cards to the other players, or trade with the bank at your best rate.' : 'Propose different terms. They can accept or ignore it.'}</p>
-      <div class="trade-row"><span class="lbl">You give</span>${picker('give', m.give, { max: r => P.res[r], extra: r => `<span class="have">have ${P.res[r]}${m.type === 'trade' ? ` · <span class="rate">${rt[r]}:1</span>` : ''}</span>` })}</div>
-      <div class="trade-row"><span class="lbl">You get</span>${picker('get', m.get, { max: r => 19 })}</div>
-      <div class="modal-actions"><button class="btn" data-act="close">Cancel</button>
-      ${m.type === 'trade' ? `<button class="btn" data-act="bank" ${bankErr ? `disabled title="${esc(bankErr)}"` : ''}>Trade with bank</button><button class="btn primary" data-act="offer" ${offerErr ? `disabled title="${esc(offerErr)}"` : ''}>Offer to players</button>`
-        : `<button class="btn primary" data-act="counter-send" ${offerErr ? `disabled title="${esc(offerErr)}"` : ''}>Send counter</button>`}</div>
-      ${m.type === 'trade' && bankErr && Engine.total(m.give) && Engine.total(m.get) ? `<p class="note">Bank: ${esc(bankErr)}</p>` : ''}`;
+    body = tradeModal(s, me, m);
   } else if (m.type === 'yop') {
     const err = tradeCheck(s, me, { t: 'play', card: 'yearOfPlenty', res: m.res });
     body = `<h2>Year of Plenty</h2><p class="sub">Take any two resources from the bank.</p>${picker('yop', m.res, { max: r => s.bank[r], cap: 2, extra: r => `<span class="have">bank ${s.bank[r]}</span>` })}
@@ -918,6 +1074,63 @@ function bindSoundPanel() {
   mv.oninput = () => { Sound.set({ musicVol: mv.value / 100 }); $('#sndMusicOut').textContent = mv.value + '%'; };
 }
 
+/* ---------- trade window ---------- */
+function bankCredits(m, rt) { return Engine.RES.reduce((n, r) => n + Math.floor((m.give[r] || 0) / rt[r]), 0); }
+function tileRow(kind, m, info) {
+  // info(r) -> { dis: reason|'' , note: html, badge: html }
+  return `<div class="tiles">${Engine.RES.map(r => {
+    const v = m[kind][r] || 0;
+    const x = info(r);
+    return `<div class="tile-wrap"><button class="tile ${r}${v ? ' sel' : ''}" data-act="tadd" data-k="${kind}" data-r="${r}" ${x.dis ? `aria-disabled="true" title="${esc(x.dis)}"` : `title="Add ${RES_NAME[r].toLowerCase()}"`} aria-label="${kind === 'give' ? 'Give' : 'Get'} ${RES_NAME[r]}${v ? ', ' + v + ' picked' : ''}">
+        ${ic(r)}${x.badge || ''}${v ? `<span class="cnt">${v}</span>` : ''}</button>
+      <span class="tile-note">${x.note || ''}</span>
+      ${v ? `<button class="tile-minus" data-act="tsub" data-k="${kind}" data-r="${r}" aria-label="Remove one ${RES_NAME[r].toLowerCase()}">−</button>` : ''}</div>`;
+  }).join('')}</div>`;
+}
+function tradeModal(s, me, m) {
+  const E = Engine;
+  const P = s.players[me];
+  if (m.type === 'counter') {
+    const t = s.trade;
+    const err = tradeCheck(s, me, { t: 'counter', id: m.id, give: m.give, get: m.get });
+    const changed = E.RES.some(r => (m.give[r] || 0) !== (t.get[r] || 0) || (m.get[r] || 0) !== (t.give[r] || 0));
+    return `<h2>Counter-offer</h2><p class="sub">${pTag(s, t.from)} offered ${tradeCards(t.give)} for ${tradeCards(t.get)}. Change the terms and send them back. They'll see you're writing one.</p>
+      <div class="tr-sec"><div class="tr-lbl">You give</div>${tileRow('give', m, r => ({ dis: P.res[r] - (m.give[r] || 0) <= 0 ? 'You have no more ' + RES_NAME[r].toLowerCase() : '', note: 'have ' + P.res[r] }))}</div>
+      <div class="tr-sec"><div class="tr-lbl">You get</div>${tileRow('get', m, r => ({ dis: E.total(m.get) >= 10 ? 'That\'s plenty' : '', note: '' }))}</div>
+      <div class="tr-sum">${E.total(m.give) && E.total(m.get) ? `You give ${tradeCards(m.give)} <span class="ft-swap">${ic('trade')}</span> you get ${tradeCards(m.get)}` : '<span class="note">Pick at least one card on each side.</span>'}</div>
+      <div class="modal-actions"><button class="btn" data-act="close">Never mind</button><button class="btn primary" data-act="counter-send" ${err || !changed ? `disabled title="${esc(err || 'Change something first')}"` : ''}>Send counter-offer</button></div>`;
+  }
+  const tab = m.tab || 'players';
+  const tabs = `<div class="tr-tabs" role="tablist"><button role="tab" data-act="ttab" data-tab="players" aria-selected="${tab === 'players'}">${ic('people')}Players</button><button role="tab" data-act="ttab" data-tab="bank" aria-selected="${tab === 'bank'}">${ic('bank')}Bank</button></div>`;
+  if (tab === 'bank') {
+    const rt = E.rates(s, me);
+    const credits = bankCredits(m, rt);
+    const picked = E.total(m.get);
+    const err = tradeCheck(s, me, { t: 'bank', give: m.give, get: m.get });
+    const ports = E.RES.filter(r => rt[r] < 4);
+    let sum;
+    if (!E.total(m.give)) sum = '<span class="note">Tap a resource you have plenty of. Each tap adds one batch at your rate.</span>';
+    else if (picked < credits) sum = `You give ${tradeCards(m.give)} <span class="ft-swap">${ic('trade')}</span> <span class="note">now pick ${credits - picked} card${credits - picked > 1 ? 's' : ''} to get</span>`;
+    else sum = `You give ${tradeCards(m.give)} <span class="ft-swap">${ic('trade')}</span> you get ${tradeCards(m.get)}`;
+    return `<h2>Trade</h2>${tabs}
+      <p class="sub">Your rates: ${ports.length ? E.RES.map(r => `<span class="rate-pill${rt[r] < 4 ? ' good' : ''}">${ri(r)} ${rt[r]}:1</span>`).join(' ') : '4:1 for everything. Build on a harbour for better rates.'}</p>
+      <div class="tr-sec"><div class="tr-lbl">You give</div>${tileRow('give', m, r => ({ dis: m.get[r] ? 'You\'re getting ' + RES_NAME[r].toLowerCase() : P.res[r] - (m.give[r] || 0) < rt[r] ? 'You need ' + rt[r] + ' ' + RES_NAME[r].toLowerCase() + ' for one card' : '', badge: `<span class="rate-badge${rt[r] < 4 ? ' good' : ''}">${rt[r]}:1</span>`, note: 'have ' + P.res[r] }))}</div>
+      <div class="tr-sec"><div class="tr-lbl">You get</div>${tileRow('get', m, r => ({ dis: m.give[r] ? 'You\'re giving ' + RES_NAME[r].toLowerCase() : !credits ? 'Pick what to give first' : picked >= credits ? 'Give more to get more' : s.bank[r] - (m.get[r] || 0) <= 0 ? 'The bank has no ' + RES_NAME[r].toLowerCase() + ' left' : '', note: 'bank ' + s.bank[r] }))}</div>
+      <div class="tr-sum">${sum}</div>
+      <div class="modal-actions"><button class="btn" data-act="tclear" ${E.total(m.give) + picked ? '' : 'disabled'}>Clear</button><button class="btn primary" data-act="bank" ${err ? `disabled title="${esc(err)}"` : ''}>${ic('bank')}Trade with the bank</button></div>`;
+  }
+  const err = tradeCheck(s, me, { t: 'offer', give: m.give, get: m.get });
+  const others = s.players.map((_, i) => i).filter(i => i !== me);
+  const sum = E.total(m.give) && E.total(m.get) ? `You give ${tradeCards(m.give)} <span class="ft-swap">${ic('trade')}</span> you get ${tradeCards(m.get)}`
+    : `<span class="note">${!E.total(m.give) && !E.total(m.get) ? 'Tap cards to build your offer: what you give on top, what you want below.' : !E.total(m.give) ? 'Now pick what you give.' : 'Now pick what you want.'}</span>`;
+  return `<h2>Trade</h2>${tabs}
+    <div class="tr-sec"><div class="tr-lbl">You give</div>${tileRow('give', m, r => ({ dis: P.res[r] - (m.give[r] || 0) <= 0 ? (P.res[r] ? 'That\'s all your ' + RES_NAME[r].toLowerCase() : 'You have no ' + RES_NAME[r].toLowerCase()) : '', note: 'have ' + P.res[r] }))}</div>
+    <div class="tr-sec"><div class="tr-lbl">You want</div>${tileRow('get', m, r => ({ dis: E.total(m.get) >= 10 ? 'That\'s plenty' : '', note: '' }))}</div>
+    <div class="tr-sum">${sum}</div>
+    <div class="tr-to"><span class="lbl">Goes to</span>${others.map(i => `<span class="to-pill"><span class="sw" style="background:${COLOR_HEX[s.players[i].color]}"></span>${esc(pName(s, i))}<span class="note">${s.players[i].nCards != null ? s.players[i].nCards : E.total(s.players[i].res)} cards</span></span>`).join('')}</div>
+    <div class="modal-actions"><button class="btn" data-act="tclear" ${E.total(m.give) + E.total(m.get) ? '' : 'disabled'}>Clear</button><button class="btn primary" data-act="offer" ${err ? `disabled title="${esc(err)}"` : ''}>${ic('trade')}Send offer</button></div>`;
+}
+
 function tradeCheck(s, me, a) {
   if (me < 0) return 'You are watching.';
   try { Engine.apply(s, me, a, () => 0.5); return ''; } catch (e) { return e.message || 'Not possible.'; }
@@ -962,6 +1175,13 @@ function diceChart(rolls) {
 /* ============================================================
    EVENTS
    ============================================================ */
+function closeModal() {
+  const m = app.ui.modal;
+  app.ui.modal = null;
+  const s = app.g && app.g.view && app.g.view.game;
+  if (m && m.type === 'counter' && s && s.trade && s.trade.id === m.id && s.trade.drafting && s.trade.drafting[myIndexIn(app.g.view)]) send({ t: 'draft', id: m.id, on: false });
+  render();
+}
 function leaveRoom() {
   closeSession();
   app.view = 'home';
@@ -992,7 +1212,7 @@ function handleAct(act, ds, el) {
     case 'pvp': app.ui.practice.vp = Math.max(5, Math.min(20, app.ui.practice.vp + +ds.d)); return renderPractice();
     case 'practice': {
       const p = app.ui.practice;
-      app.ui.lastPractice = { bots: p.bots, settings: { vpToWin: p.vp, layout: p.layout, friendlyRobber: p.friendly, map: p.map || 'standard', maxPlayers: p.bots + 1 } };
+      app.ui.lastPractice = { bots: p.bots, level: p.level || 'normal', settings: { vpToWin: p.vp, layout: p.layout, friendlyRobber: p.friendly, map: p.map || 'standard', maxPlayers: p.bots + 1 } };
       return startPractice(app.ui.lastPractice);
     }
     case 'home':
@@ -1025,7 +1245,7 @@ function handleAct(act, ds, el) {
       return send({ t: 'rematch' });
     case 'end-dismiss': app.ui.endDismissed = d.code + ':' + d.endedAt; return render();
     case 'roll': app.ui.costs = false; return send({ t: 'roll' });
-    case 'mode': app.ui.mode = ds.m && app.ui.mode !== ds.m ? ds.m : null; return render();
+    case 'mode': app.ui.mode = ds.m && app.ui.mode !== ds.m ? ds.m : null; clearTimeout(app.ui.previewTimer); if (app.ui.mode) app.ui.preview = null; return render();
     case 'buydev': return send({ t: 'buyDev' });
     case 'end': app.ui.mode = null; app.ui.costs = false; return send({ t: 'end' });
     case 'pass': app.ui.mode = null; app.ui.costs = false; return send({ t: 'pass' });
@@ -1037,7 +1257,23 @@ function handleAct(act, ds, el) {
       if (c === 'monopoly') { app.ui.modal = { type: 'mono' }; return render(); }
       return send({ t: 'play', card: c });
     }
-    case 'trade': app.ui.mode = null; app.ui.modal = { type: 'trade', give: Engine.emptyRes(), get: Engine.emptyRes() }; return render();
+    case 'trade': app.ui.mode = null; app.ui.preview = null; app.ui.modal = { type: 'trade', tab: app.ui.tradeTab || 'players', give: Engine.emptyRes(), get: Engine.emptyRes() }; return render();
+    case 'ttab': if (m) { m.tab = app.ui.tradeTab = ds.tab; m.give = Engine.emptyRes(); m.get = Engine.emptyRes(); } return renderModal();
+    case 'tclear': if (m) { m.give = Engine.emptyRes(); m.get = Engine.emptyRes(); } return renderModal();
+    case 'tadd': case 'tsub': {
+      if (!m || !s || me < 0) return;
+      const k = ds.k, r = ds.r, other = k === 'give' ? m.get : m.give;
+      const bank = m.type === 'trade' && m.tab === 'bank';
+      const step = bank && k === 'give' ? Engine.rates(s, me)[r] : 1;
+      if (act === 'tadd') { m[k][r] = (m[k][r] || 0) + step; other[r] = 0; }
+      else m[k][r] = Math.max(0, (m[k][r] || 0) - step);
+      if (bank) { // never ask the bank for more than the cards given pay for
+        const credits = bankCredits(m, Engine.rates(s, me));
+        let extra = Engine.total(m.get) - credits;
+        for (const x of [...Engine.RES].reverse()) while (extra > 0 && m.get[x]) { m.get[x]--; extra--; }
+      }
+      return renderModal();
+    }
     case 'step': {
       const k = ds.k, r = ds.r, dd = +ds.d;
       let target;
@@ -1054,10 +1290,11 @@ function handleAct(act, ds, el) {
     case 'yop-send': { const res = Object.assign({}, m.res); if (send({ t: 'play', card: 'yearOfPlenty', res })) { app.ui.modal = null; render(); } return; }
     case 'mono': if (send({ t: 'play', card: 'monopoly', r: ds.r })) { app.ui.modal = null; render(); } return;
     case 'offer': if (send({ t: 'offer', give: Object.assign({}, m.give), get: Object.assign({}, m.get) })) { app.ui.modal = null; render(); } return;
-    case 'bank': if (send({ t: 'bank', give: Object.assign({}, m.give), get: Object.assign({}, m.get) })) { m.give = Engine.emptyRes(); m.get = Engine.emptyRes(); render(); } return;
+    case 'bank': if (send({ t: 'bank', give: Object.assign({}, m.give), get: Object.assign({}, m.get) })) { m.give = Engine.emptyRes(); m.get = Engine.emptyRes(); toast('Traded with the bank.'); render(); } return;
     case 'counter-open': {
       if (!s || !s.trade) return;
       app.ui.modal = { type: 'counter', id: s.trade.id, give: Object.assign(Engine.emptyRes(), s.trade.get), get: Object.assign(Engine.emptyRes(), s.trade.give) };
+      send({ t: 'draft', id: s.trade.id, on: true }); // lets everyone see you're writing a counter
       return render();
     }
     case 'counter-send': if (send({ t: 'counter', id: m.id, give: Object.assign({}, m.give), get: Object.assign({}, m.get) })) { app.ui.modal = null; render(); } return;
@@ -1066,7 +1303,10 @@ function handleAct(act, ds, el) {
     case 'confirm': return send({ t: 'confirm', id: +ds.id, q: +ds.q });
     case 'cancel-offer': return send({ t: 'cancel' });
     case 'tab': app.ui.tab = ds.tab; return render();
-    case 'close': app.ui.modal = null; return render();
+    case 'translate': return d ? translateChat(d, +ds.k) : undefined;
+    case 'botlvl': return send({ t: 'botLevel', i: +ds.i, level: ds.l });
+    case 'plevel': app.ui.practice.level = ds.v; return renderPractice();
+    case 'close': return closeModal();
     case 'backdrop': return;
   }
 }
@@ -1090,12 +1330,18 @@ function bindEvents() {
   // phones only allow audio from a finished tap, so listen to the end of touches and clicks too
   for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) document.addEventListener(ev, wake, true);
   document.addEventListener('click', e => {
+    if (app.ui.held && Date.now() - app.ui.held < 900 && e.target.closest('[data-prev]')) { app.ui.held = 0; return; } // that was a press-and-hold
     const t = e.target.closest('[data-act]');
     if (t) {
       if (t.disabled) return;
+      if (t.getAttribute('aria-disabled') === 'true') {
+        if (t.dataset.act === 'mode') { if (app.ui.lastPointer === 'touch') togglePreview(t.dataset.m, true); if (t.title) toast(t.title); }
+        else if (t.title) toast(t.title, 'error');
+        return;
+      }
       if (t.dataset.act !== 'backdrop') Sound.play(t.dataset.act === 'step' ? 'step' : 'click');
       if (t.dataset.act === 'backdrop' && e.target !== t) return;
-      if (t.dataset.act === 'backdrop') { if (app.ui.modal) { app.ui.modal = null; render(); } return; }
+      if (t.dataset.act === 'backdrop') { if (app.ui.modal) closeModal(); return; }
       handleAct(t.dataset.act, t.dataset, t);
       return;
     }
@@ -1104,6 +1350,28 @@ function bindEvents() {
     const h = e.target.closest('[data-h]'); if (h) return onHex(+h.dataset.h);
     if (app.ui.costs && !e.target.closest('.costs-pop')) { app.ui.costs = false; render(); }
   });
+  // build previews follow a mouse or keyboard focus; touch screens use a tap on a greyed-out button instead
+  document.addEventListener('pointerover', e => {
+    const b = e.target.closest && e.target.closest('[data-prev]');
+    if (!b || e.pointerType === 'touch') return;
+    if (app.ui.preview !== b.dataset.prev) { clearTimeout(app.ui.previewTimer); app.ui.preview = b.dataset.prev; renderPreview(); syncPeekButtons(); }
+  });
+  document.addEventListener('pointerout', e => {
+    const b = e.target.closest && e.target.closest('[data-prev]');
+    if (!b || e.pointerType === 'touch' || (e.relatedTarget && b.contains(e.relatedTarget))) return;
+    if (app.ui.preview === b.dataset.prev) { app.ui.preview = null; renderPreview(); syncPeekButtons(); }
+  });
+  // on touch screens, press and hold any build button to see the spots
+  document.addEventListener('pointerdown', e => {
+    app.ui.lastPointer = e.pointerType;
+    const b = e.target.closest && e.target.closest('[data-prev]');
+    if (!b || e.pointerType !== 'touch') return;
+    clearTimeout(app.ui.holdTimer);
+    app.ui.holdTimer = setTimeout(() => { app.ui.held = Date.now(); app.ui.preview = null; togglePreview(b.dataset.prev, true); }, 450);
+  });
+  for (const ev of ['pointerup', 'pointercancel']) document.addEventListener(ev, () => clearTimeout(app.ui.holdTimer));
+  document.addEventListener('focusin', e => { const b = e.target.closest && e.target.closest('[data-prev]'); let kb = false; try { kb = b && b.matches(':focus-visible'); } catch (x) { } if (b && kb) { app.ui.preview = b.dataset.prev; renderPreview(); syncPeekButtons(); } });
+  document.addEventListener('focusout', e => { const b = e.target.closest && e.target.closest('[data-prev]'); if (b && app.ui.preview === b.dataset.prev) { app.ui.preview = null; renderPreview(); syncPeekButtons(); } });
   document.addEventListener('keydown', e => {
     if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''))) {
       const off = !Sound.get().muted;
@@ -1114,7 +1382,7 @@ function bindEvents() {
       return;
     }
     if (e.key !== 'Escape') return;
-    if (app.ui.modal) { app.ui.modal = null; render(); return; }
+    if (app.ui.modal) { closeModal(); return; }
     if (app.ui.mode || app.ui.costs) { app.ui.mode = null; app.ui.costs = false; render(); }
   });
   setInterval(() => {
