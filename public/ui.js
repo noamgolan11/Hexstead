@@ -101,7 +101,8 @@ function renderHome() {
           <button class="btn primary big" data-act="practice" style="margin-top:6px">Start practice game</button>
         </section>
       </div>
-      <details class="howto card"><summary>How to play</summary>${rulesHTML()}</details>`;
+      <details class="howto card"><summary>How to play</summary>${rulesHTML()}</details>
+      <p class="note" style="text-align:center;margin-top:18px">Hexstead v${HEXSTEAD_VERSION}</p>`;
     $('#joinForm').addEventListener('submit', e => {
       e.preventDefault();
       const c = $('#joinCode').value.trim().toUpperCase();
@@ -154,7 +155,7 @@ function renderHomeTables() {
     const label = t.status === 'lobby' ? (mine ? 'Open' : 'Join') : (mine ? 'Rejoin' : 'Watch');
     return `<div class="table-row${mine ? ' mine' : ''}">
       <span class="code">${esc(t.code)}</span>
-      <span class="meta">${st} Host: ${esc(host)} · ${t.n}/${t.max} seats${t.bots ? ' · ' + t.bots + ' bot' + (t.bots > 1 ? 's' : '') : ''} · ${ago(t.updatedAt)}</span>
+      <span class="meta">${st} ${t.map ? esc(Engine.mapInfo(t.map).name) + ' · ' : ''}Host: ${esc(host)} · ${t.n}/${t.max} seats${t.bots ? ' · ' + t.bots + ' bot' + (t.bots > 1 ? 's' : '') : ''} · ${ago(t.updatedAt)}</span>
       <span class="row">${own ? `<button class="btn small danger" data-act="del" data-code="${esc(t.code)}" aria-label="Delete table ${esc(t.code)}">Delete</button>` : ''}<button class="btn small${t.status === 'lobby' ? ' primary' : ''}" data-act="open" data-code="${esc(t.code)}">${label}</button></span>
     </div>`;
   }).join(''));
@@ -169,13 +170,26 @@ function ago(t) {
 
 function renderPractice() {
   const p = app.ui.practice;
-  setHTML($('#practiceOpts'), `<div class="settings-grid">
-    <div class="field"><span class="lbl">Opponents</span><div class="seg" role="group" aria-label="Number of bots">${[1, 2, 3].map(n => `<button data-act="pbots" data-n="${n}" aria-pressed="${p.bots === n}">${n} bot${n > 1 ? 's' : ''}</button>`).join('')}</div></div>
+  if (!p.map) p.map = 'standard';
+  const maxBots = Engine.mapInfo(p.map).max - 1;
+  if (p.bots > maxBots) p.bots = maxBots;
+  const m = Engine.mapInfo(p.map);
+  setHTML($('#practiceOpts'), `<div class="field" style="margin-bottom:12px"><span class="lbl">Map</span>${mapPicker('pmap', p.map)}<span class="note">${esc(m.blurb)}</span></div>
+    <div class="settings-grid">
+    <div class="field"><span class="lbl">Opponents</span><div class="seg" role="group" aria-label="Number of bots">${[1, 2, 3, 4, 5].filter(n => n <= maxBots).map(n => `<button data-act="pbots" data-n="${n}" aria-pressed="${p.bots === n}">${n}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl">Points to win</span>${stepper('pvp', p.vp, 5, 20)}</div>
     <div class="field"><span class="lbl">Board</span><div class="seg" role="group" aria-label="Board layout">${[['random', 'Random'], ['balanced', 'Balanced']].map(([k, l]) => `<button data-act="playout" data-v="${k}" aria-pressed="${p.layout === k}">${l}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl">Friendly robber</span><label class="switch"><input type="checkbox" id="pfriendly" ${p.friendly ? 'checked' : ''}> <span class="note">Protect players with 2 points or fewer</span></label></div>
   </div>`);
   const f = $('#pfriendly'); if (f) f.onchange = () => { p.friendly = f.checked; };
+}
+function mapPicker(act, current, disabled, players) {
+  return `<div class="maps" role="group" aria-label="Map">${Engine.MAP_ORDER.map(id => {
+    const m = Engine.mapInfo(id);
+    const tooSmall = players && players > m.max;
+    return `<button class="map-card" data-act="${act}" data-v="${id}" aria-pressed="${current === id}" ${disabled || tooSmall ? 'disabled' : ''} title="${esc(m.blurb)}">
+      <span class="map-thumb">${mapThumb(id)}</span><span class="map-name">${esc(m.name)}</span><span class="map-meta">${m.min}–${m.max} players</span></button>`;
+  }).join('')}</div>`;
 }
 function stepper(key, val, lo, hi, disabled) {
   return `<div class="stepper"><button data-act="${key}" data-d="-1" ${disabled || val <= lo ? 'disabled' : ''} aria-label="Decrease">−</button><output>${val}</output><button data-act="${key}" data-d="1" ${disabled || val >= hi ? 'disabled' : ''} aria-label="Increase">+</button></div>`;
@@ -201,6 +215,11 @@ function rulesHTML() {
       <li>Settlement 1, city 2, Victory Point card 1.</li>
       <li>Longest Road (5+ connected roads): 2. Largest Army (3+ knights played): 2.</li>
       <li>Settlements must be at least two corners apart. The first to the target score on their own turn wins.</li>
+    </ul></div>
+    <div><h4>Maps and 5–6 players</h4><ul>
+      <li>Pick a map before the game. Lakes and stretches of sea can't be crossed by roads.</li>
+      <li>Grand Isle and Uncharted take up to 6 players. Big games use a bank of 24 per resource and 34 development cards.</li>
+      <li>With 5 or 6 players, after each turn every other player in order gets a special building turn: build or buy cards, but no trading or playing cards.</li>
     </ul></div>
     <div><h4>Playing online</h4><ul>
       <li>Open a table and send the invite link. Friends pick a name and take a seat; no accounts needed.</li>
@@ -334,11 +353,15 @@ function renderLobby(stage, d) {
   const st = d.settings;
   const ro = !isOwner;
   const seg = (key, opts, val) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button data-act="set" data-k="${key}" data-v="${v}" aria-pressed="${String(val) === String(v)}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>`;
-  setHTML($('#lobbySettings'), `<div class="eyebrow" style="margin-bottom:8px">House rules${ro ? ' <span class="note" style="text-transform:none;letter-spacing:0">(set by the host)</span>' : ''}</div>
+  const mi = Engine.mapInfo(st.map);
+  setHTML($('#lobbySettings'), `<div class="eyebrow" style="margin-bottom:8px">Map${ro ? ' <span class="note" style="text-transform:none;letter-spacing:0">(chosen by the host)</span>' : ''}</div>
+    ${mapPicker('setmap', st.map, ro, d.seats.length)}
+    <p class="note" style="margin:6px 0 18px"><b>${esc(mi.name)}:</b> ${esc(mi.blurb)}${mi.max > 4 ? ' With 5 or 6 players, everyone gets a special building turn after each player\'s turn.' : ''}</p>
+    <div class="eyebrow" style="margin-bottom:8px">House rules${ro ? ' <span class="note" style="text-transform:none;letter-spacing:0">(set by the host)</span>' : ''}</div>
     <div class="settings-grid">
       <div class="field"><span class="lbl">Points to win</span>${stepper('setvp', st.vpToWin, 5, 20, ro)}</div>
       <div class="field"><span class="lbl">Hand limit on a 7</span>${stepper('setdl', st.discardLimit, 5, 15, ro)}</div>
-      <div class="field"><span class="lbl">Players</span>${seg('maxPlayers', [[2, '2'], [3, '3'], [4, '4']], st.maxPlayers)}</div>
+      <div class="field"><span class="lbl">Players</span>${seg('maxPlayers', [2, 3, 4, 5, 6].filter(n => n <= Engine.mapInfo(st.map).max).map(n => [n, String(n)]), st.maxPlayers)}</div>
       <div class="field"><span class="lbl">Turn timer</span>${seg('timer', [[0, 'Off'], [60, '60s'], [90, '90s'], [120, '2m'], [180, '3m']], st.timer)}</div>
       <div class="field"><span class="lbl">Board</span>${seg('layout', [['random', 'Random'], ['balanced', 'Balanced']], st.layout)}</div>
       <div class="field"><span class="lbl">Friendly robber</span>${seg('friendlyRobber', [['false', 'Off'], ['true', 'On']], st.friendlyRobber)}</div>
@@ -371,6 +394,14 @@ function isBusy() {
 function boardTargets(s, me) {
   if (me < 0 || s.phase === 'ended' || isBusy()) return {};
   const E = Engine;
+  if (s.phase === 'special') {
+    if (!s.special || s.special.q[0] !== me) return {};
+    const m = app.ui.mode;
+    if (m === 'road') return { e: E.legalRoads(s, me) };
+    if (m === 'settle') return { v: E.legalSettlements(s, me, false) };
+    if (m === 'city') return { v: E.legalCities(s, me) };
+    return {};
+  }
   if (s.cur !== me) return {};
   if (s.phase === 'setup') return s.setup.step === 'settlement' ? { v: E.legalSettlements(s, me, true) } : { e: E.legalRoads(s, me) };
   if (s.phase === 'robber') return { h: E.legalRobberHexes(s, me) };
@@ -400,7 +431,7 @@ function renderTable(stage, d) {
   }
   const s = d.game;
   const me = myIndexIn(d);
-  if (app.ui.mode && !(s.phase === 'main' && s.cur === me)) app.ui.mode = null;
+  if (app.ui.mode && !((s.phase === 'main' && s.cur === me) || (s.phase === 'special' && s.special && s.special.q[0] === me))) app.ui.mode = null;
 
   // fresh-piece tracking for the drop-in animation
   const now = Date.now();
@@ -486,13 +517,21 @@ function bannerInfo(d, s, me) {
     case 'main':
       if (mine) return app.ui.mode ? `Pick where to build your ${app.ui.mode === 'settle' ? 'settlement' : app.ui.mode}` : 'Build, trade, or end your turn';
       return `${cur}'s turn`;
+    case 'special': {
+      const who = s.special.q[0];
+      const ni = (s.cur + 1) % n;
+      const next = ni === me ? 'your' : pName(s, ni) + '\'s';
+      if (who === me) return app.ui.mode ? 'Pick where to build' : `Special build: you may build before ${next} turn`;
+      return `${pName(s, who)} may build before ${next} turn`;
+    }
     case 'ended': return `${pName(s, s.winner)} wins with ${Engine.vp(s, s.winner)} points`;
   }
   return '';
 }
 function renderBanner(d, s, me) {
-  const mine = s.phase !== 'ended' && (s.cur === me || (s.phase === 'discard' && Engine.discardNeeded(s, me) > 0));
-  const who = s.phase === 'ended' ? s.winner : s.cur;
+  const actor = s.phase === 'special' && s.special ? s.special.q[0] : s.cur;
+  const mine = s.phase !== 'ended' && ((s.phase === 'special' ? actor === me : s.cur === me) || (s.phase === 'discard' && Engine.discardNeeded(s, me) > 0));
+  const who = s.phase === 'ended' ? s.winner : actor;
   const el = $('#banner');
   el.className = 'banner' + (mine ? ' you' : '');
   setHTML(el, `<span class="who" style="background:${COLOR_HEX[s.players[who].color]}"></span><span>${esc(bannerInfo(d, s, me))}</span><span class="clock" id="clock"></span>${s.phase === 'roadBuilding' && s.cur === me ? '<button class="btn small" data-act="skiproads">Skip</button>' : ''}${app.ui.mode ? '<button class="btn small" data-act="mode" data-m="">Cancel</button>' : ''}`);
@@ -556,7 +595,9 @@ function renderDock(d, s, me) {
     return;
   }
   const myTurn = s.cur === me && s.phase !== 'ended';
-  const main = myTurn && s.phase === 'main';
+  const special = s.phase === 'special' && s.special && s.special.q[0] === me;
+  const turnMain = myTurn && s.phase === 'main';
+  const main = turnMain || special; // may build
   const busy = isBusy();
   const left = E.piecesLeft(s, me);
   const hand = E.RES.map(r => `<div class="card-res ${r}${P.res[r] ? '' : ' zero'}" title="${RES_NAME[r]}: ${P.res[r]}">${ic(r)}<span class="n">${P.res[r]}</span></div>`).join('');
@@ -583,8 +624,9 @@ function renderDock(d, s, me) {
   } else {
     actions = btn('road', 'Road', 'road', E.COST.road, left.road) + btn('settle', 'Settlement', 'settlement', E.COST.settlement, left.settlement) + btn('city', 'City', 'city', E.COST.city, left.city) +
       `<button class="btn act" data-act="buydev" ${can.dev ? '' : 'disabled'} title="${esc(can.dev ? 'Buy a development card (1 wool, 1 grain, 1 ore)' : why('dev', E.COST.dev, s.deck.length))}">${ic('card')}<span>Dev card</span></button>` +
-      `<button class="btn act" data-act="trade" ${main ? '' : 'disabled'} title="Trade with the bank or other players">${ic('trade')}<span>Trade</span></button>` +
-      `<button class="btn act${main ? ' primary' : ''}" data-act="end" ${main && !busy ? '' : 'disabled'}>${ic('end')}<span>End turn</span></button>`;
+      `<button class="btn act" data-act="trade" ${turnMain ? '' : 'disabled'} title="${special ? 'No trading during special building' : 'Trade with the bank or other players'}">${ic('trade')}<span>Trade</span></button>` +
+      (special ? `<button class="btn act primary" data-act="pass" ${busy ? 'disabled' : ''}>${ic('end')}<span>Done</span></button>`
+        : `<button class="btn act${main ? ' primary' : ''}" data-act="end" ${main && !busy ? '' : 'disabled'}>${ic('end')}<span>End turn</span></button>`);
   }
   const costs = app.ui.costs ? `<div class="costs-pop"><div class="costs">${['road', 'settlement', 'city', 'dev'].map(k => `<span class="what">${k === 'dev' ? 'Dev card' : k[0].toUpperCase() + k.slice(1)}</span><span>${resList(E.COST[k])}</span>`).join('')}</div><p class="note" style="margin:8px 0 0">Pieces left: ${left.road} roads, ${left.settlement} settlements, ${left.city} cities</p></div>` : '';
   setHTML(el, `<div class="hand" aria-label="Your cards">${hand}</div>${devs ? `<div class="devs">${devs}</div>` : ''}<div class="actions">${actions}<button class="btn small icon" data-act="costs" aria-label="Build costs" aria-expanded="${!!app.ui.costs}">?</button></div>${costs}`);
@@ -600,7 +642,7 @@ function renderPlayers(d, s, me) {
     const hidden = i === me && !ended ? Engine.vpCards(s, i) : 0;
     const cards = pl.nCards != null ? pl.nCards : Engine.total(pl.res);
     const len = Engine.roadLength(s, i);
-    const turn = !ended && s.cur === i;
+    const turn = !ended && (s.phase === 'special' && s.special ? s.special.q[0] === i : s.cur === i);
     const pend = s.phase === 'discard' && s.discard && s.discard[i];
     const dot = !pl.bot && !g.local ? `<span class="dot${online.has(pl.uid) || pl.uid === myUid() ? ' on' : ''}" title="${online.has(pl.uid) || pl.uid === myUid() ? 'Online' : 'Not here right now'}"></span>` : '';
     return `<div class="pl${turn ? ' turn' : ''}">
@@ -671,6 +713,9 @@ function logLine(s, e, me) {
     case 'lrLost': return `<div class="log-e">Longest Road is up for grabs again</div>`;
     case 'la': return `<div class="log-e">${P(e.p)} holds <b>Largest Army</b> (${e.n} knights)</div>`;
     case 'short': return `<div class="log-e">The bank ran short of ${e.res.map(r => RES_NAME[r].toLowerCase()).join(', ')}. Nobody was paid that resource.</div>`;
+    case 'special': { const ni = (e.p + 1) % s.players.length; return `<div class="log-e note">Special building before ${ni === me ? 'your' : P(ni) + '\'s'} turn</div>`; }
+    case 'autoOn': return `<div class="log-e">A bot is playing for ${P(e.p)} while they're away</div>`;
+    case 'autoOff': return `<div class="log-e">${P(e.p)} is back</div>`;
     case 'timeout': return `<div class="log-e">${P(e.p)} ran out of time. Moves were made for them.</div>`;
     case 'win': return `<div class="log-e"><b>${P(e.p)} wins with ${e.vp} points!</b></div>`;
   }
@@ -830,11 +875,12 @@ function handleAct(act, ds, el) {
     case 'del': app.ui.modal = { type: 'del', code: ds.code }; return render();
     case 'del-now': app.ui.modal = null; render(); return deleteTable(ds.code);
     case 'pbots': app.ui.practice.bots = +ds.n; return renderPractice();
+    case 'pmap': app.ui.practice.map = ds.v; return renderPractice();
     case 'playout': app.ui.practice.layout = ds.v; return renderPractice();
     case 'pvp': app.ui.practice.vp = Math.max(5, Math.min(20, app.ui.practice.vp + +ds.d)); return renderPractice();
     case 'practice': {
       const p = app.ui.practice;
-      app.ui.lastPractice = { bots: p.bots, settings: { vpToWin: p.vp, layout: p.layout, friendlyRobber: p.friendly } };
+      app.ui.lastPractice = { bots: p.bots, settings: { vpToWin: p.vp, layout: p.layout, friendlyRobber: p.friendly, map: p.map || 'standard', maxPlayers: p.bots + 1 } };
       return startPractice(app.ui.lastPractice);
     }
     case 'home':
@@ -855,6 +901,7 @@ function handleAct(act, ds, el) {
       else if (ds.k === 'maxPlayers' || ds.k === 'timer') v = +v;
       return send({ t: 'settings', settings: { [ds.k]: v } });
     }
+    case 'setmap': return send({ t: 'settings', settings: { map: ds.v } });
     case 'setvp': return send({ t: 'settings', settings: { vpToWin: d.settings.vpToWin + +ds.d } });
     case 'setdl': return send({ t: 'settings', settings: { discardLimit: d.settings.discardLimit + +ds.d } });
     case 'start': return send({ t: 'start' });
@@ -867,6 +914,7 @@ function handleAct(act, ds, el) {
     case 'mode': app.ui.mode = ds.m && app.ui.mode !== ds.m ? ds.m : null; return render();
     case 'buydev': return send({ t: 'buyDev' });
     case 'end': app.ui.mode = null; app.ui.costs = false; return send({ t: 'end' });
+    case 'pass': app.ui.mode = null; app.ui.costs = false; return send({ t: 'pass' });
     case 'costs': app.ui.costs = !app.ui.costs; return render();
     case 'skiproads': return send({ t: 'skipRoads' });
     case 'play': {

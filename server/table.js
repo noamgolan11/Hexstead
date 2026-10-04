@@ -109,8 +109,11 @@ class Table {
         const tm = Number(x.timer ?? st.timer);
         st.timer = [0, 60, 90, 120, 180, 300].includes(tm) ? tm : 0;
         st.layout = (x.layout ?? st.layout) === 'balanced' ? 'balanced' : 'random';
-        st.map = 'standard';
-        st.maxPlayers = clampInt(x.maxPlayers ?? st.maxPlayers, Math.max(2, d.seats.length), 4, 4);
+        const map = Engine.MAPS[x.map] ? x.map : (Engine.MAPS[st.map] ? st.map : 'standard');
+        const cap = Engine.MAPS[map].max;
+        if (d.seats.length > cap) fail(Engine.MAPS[map].name + ' is for up to ' + cap + ' players. Remove a seat first.');
+        st.map = map;
+        st.maxPlayers = clampInt(x.maxPlayers ?? st.maxPlayers, Math.max(2, d.seats.length), cap, Math.min(4, cap));
         return;
       }
       case 'start': {
@@ -183,7 +186,7 @@ class Table {
     const d = this.doc, s = d.game;
     if (!s) return;
     if (!d.settings.timer || s.phase === 'ended') { s.deadline = 0; return; }
-    const key = [s.phase, s.cur, s.turn, s.setup ? s.setup.i + s.setup.step : '', s.rollId || 0].join('|');
+    const key = [s.phase, s.cur, s.turn, s.setup ? s.setup.i + s.setup.step : '', s.rollId || 0, s.special ? s.special.q.length : ''].join('|');
     if (key !== this.deadlineKey) {
       this.deadlineKey = key;
       const humans = Engine.pendingActors(s).some(p => !this.isBotSeat(s, p));
@@ -273,7 +276,7 @@ class Table {
     return {
       code: d.code, status: d.status, owner: d.owner,
       ownerName: (d.seats.find(s => s.uid === d.owner) || {}).nick || '',
-      n: d.seats.length, max: d.settings.maxPlayers, bots: d.seats.filter(s => s.bot).length,
+      map: d.settings.map, n: d.seats.length, max: d.settings.maxPlayers, bots: d.seats.filter(s => s.bot).length,
       uids: d.seats.filter(s => s.uid).map(s => s.uid), updatedAt: d.updatedAt,
     };
   }

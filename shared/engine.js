@@ -16,24 +16,113 @@ const Engine = (() => {
   const BANK_START = 19;
   const NEIGH = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
 
+  const DEV_COUNTS_BIG = { knight: 20, vp: 5, roadBuilding: 3, yearOfPlenty: 3, monopoly: 3 };
+  const terr = (f, h, p, fi, m, d) => [...rep('forest', f), ...rep('hills', h), ...rep('pasture', p), ...rep('fields', fi), ...rep('mountains', m), ...rep('desert', d)];
+
+  /* Maps. coords: land hexes in axial (q, r). terrains: exact multiset, or null to size it automatically.
+     Water inside the coastline becomes a lake. Numbers and harbours are sized to the land. */
   const MAPS = {
     standard: {
-      name: 'Classic island',
-      coords: () => radiusCoords(2),
-      terrains: [
-        ...rep('forest', 4), ...rep('hills', 3), ...rep('pasture', 4),
-        ...rep('fields', 4), ...rep('mountains', 3), 'desert',
-      ],
-      numbers: [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12],
-      ports: ['any', 'any', 'any', 'any', 'lumber', 'brick', 'wool', 'grain', 'ore'],
+      name: 'Classic', blurb: 'The familiar 19-hex island.', min: 2, max: 4,
+      coords: () => radiusCoords(2), terrains: terr(4, 3, 4, 4, 3, 1), ports: 9,
+    },
+    lagoon: {
+      name: 'Lagoon', blurb: 'A ring of land around a calm lake. The robber starts in the water.', min: 2, max: 4,
+      coords: () => radiusCoords(2).filter(c => c.q || c.r), terrains: terr(4, 3, 4, 4, 3, 0), ports: 9,
+    },
+    crescent: {
+      name: 'Crescent', blurb: 'A curved island wrapped around a deep bay lined with harbours.', min: 2, max: 4,
+      coords: () => fromCols([[6, 8, 10], [5, 7, 9, 11], [2, 4, 6], [1, 3, 5], [2, 4, 6], [5, 7, 9, 11], [6, 8, 10]]),
+      terrains: terr(5, 4, 5, 5, 3, 1), ports: 10,
+    },
+    twins: {
+      name: 'Twin Isles', blurb: 'Two islands and no way across. Pick your starting coasts carefully.', min: 2, max: 4,
+      coords: () => fromCols([[2, 4, 6, 14, 16, 18], [1, 3, 5, 7, 13, 15, 17, 19], [2, 4, 6, 14, 16, 18], [3, 5, 15, 17]]),
+      terrains: terr(5, 4, 5, 4, 4, 2), ports: 10,
+    },
+    coast: {
+      name: 'Long Coast', blurb: 'A narrow strip of land: short distances, coastline everywhere.', min: 2, max: 4,
+      coords: () => fromCols([[2, 4, 6, 8, 10, 12, 14], [1, 3, 5, 7, 9, 11, 13], [0, 2, 4, 6, 8, 10, 12]]),
+      terrains: terr(5, 4, 4, 4, 3, 1), ports: 10,
+    },
+    grand: {
+      name: 'Grand Isle', blurb: 'A 30-hex island for up to 6 players, with a bigger bank and deck.', min: 2, max: 6, big: true,
+      coords: () => fromCols([[4, 6, 8], [3, 5, 7, 9], [2, 4, 6, 8, 10], [1, 3, 5, 7, 9, 11], [2, 4, 6, 8, 10], [3, 5, 7, 9], [4, 6, 8]]),
+      terrains: terr(6, 5, 6, 6, 5, 2), ports: 11,
+    },
+    uncharted: {
+      name: 'Uncharted', blurb: 'A brand-new random coastline every game. Grows larger for 5 or 6 players.', min: 2, max: 6,
+      coords: (rng, n) => randomIsland(n >= 5 ? 28 : 19, rng), terrains: null, ports: null,
     },
   };
+  const MAP_ORDER = ['standard', 'lagoon', 'crescent', 'twins', 'coast', 'grand', 'uncharted'];
 
   function rep(x, n) { return Array(n).fill(x); }
   function radiusCoords(R) {
     const out = [];
     for (let r = -R; r <= R; r++) for (let q = -R; q <= R; q++) if (Math.abs(q + r) <= R) out.push({ q, r });
     return out;
+  }
+  function centerCoords(cs) {
+    let mx = 0, my = 0;
+    for (const c of cs) { mx += Math.sqrt(3) * (c.q + c.r / 2); my += 1.5 * c.r; }
+    mx /= cs.length; my /= cs.length;
+    const r0 = Math.round(my / 1.5), q0 = Math.round(mx / Math.sqrt(3) - r0 / 2);
+    return cs.map(c => ({ q: c.q - q0, r: c.r - r0 })).sort((a, b) => a.r - b.r || a.q - b.q);
+  }
+  /* rows of column positions; columns step by 2 and odd rows sit on odd columns */
+  function fromCols(rows) {
+    const out = [];
+    rows.forEach((cols, i) => cols.forEach(c => {
+      if ((c - i) % 2 !== 0) throw new Error('map column parity, row ' + i + ' col ' + c);
+      out.push({ q: (c - i) / 2, r: i });
+    }));
+    return centerCoords(out);
+  }
+  function randomIsland(N, rng) {
+    const key = (q, r) => q + ',' + r;
+    const land = new Map([[key(0, 0), { q: 0, r: 0 }]]);
+    while (land.size < N) {
+      const cand = new Map();
+      for (const c of land.values()) for (const [dq, dr] of NEIGH) {
+        const k = key(c.q + dq, c.r + dr);
+        if (land.has(k)) continue;
+        const e = cand.get(k) || { q: c.q + dq, r: c.r + dr, n: 0 };
+        e.n++; cand.set(k, e);
+      }
+      const list = [...cand.values()];
+      let tot = 0;
+      for (const e of list) { e.w = e.n * e.n + 0.3; tot += e.w; }
+      let x = rng() * tot, pick = list[list.length - 1];
+      for (const e of list) { x -= e.w; if (x <= 0) { pick = e; break; } }
+      land.set(key(pick.q, pick.r), { q: pick.q, r: pick.r });
+    }
+    return centerCoords([...land.values()]);
+  }
+  function autoTerrains(N) {
+    const D = N >= 26 ? 2 : 1, n = N - D;
+    const w = { forest: 4, pasture: 4, fields: 4, hills: 3, mountains: 3 };
+    const keys = Object.keys(w);
+    const cnt = {}; let used = 0;
+    for (const k of keys) { cnt[k] = Math.floor(n * w[k] / 18); used += cnt[k]; }
+    const rest = keys.slice().sort((a, b) => (n * w[b] / 18 % 1) - (n * w[a] / 18 % 1));
+    for (let i = 0; used < n; i++, used++) cnt[rest[i % rest.length]]++;
+    return terr(cnt.forest, cnt.hills, cnt.pasture, cnt.fields, cnt.mountains, D);
+  }
+  const BASE_TOKENS = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12];
+  function tokens(n) {
+    const t = BASE_TOKENS.slice();
+    const add = [3, 11, 4, 10, 5, 9, 6, 8, 2, 12], drop = [12, 2, 11, 3, 10, 4, 9, 5];
+    for (let i = 0; t.length < n; i++) t.push(add[i % add.length]);
+    for (let i = 0; t.length > n; i++) { const k = t.indexOf(drop[i % drop.length]); if (k >= 0) t.splice(k, 1); }
+    return t;
+  }
+  function portTypes(k) {
+    const t = ['any', 'any', 'any', 'any', 'lumber', 'brick', 'wool', 'grain', 'ore'];
+    const extra = ['any', 'wool', 'any', 'grain', 'any', 'ore'];
+    for (let i = 0; t.length < k; i++) t.push(extra[i % extra.length]);
+    while (t.length > k) t.splice(t.indexOf('any') >= 0 ? t.indexOf('any') : 0, 1);
+    return t;
   }
   function shuffle(arr, rng) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -123,6 +212,28 @@ const Engine = (() => {
     }
     return false;
   }
+  /* connected land masses, so deserts can be spread across islands */
+  function islandIds(nbrs) {
+    const id = Array(nbrs.length).fill(-1); let n = 0;
+    for (let i = 0; i < nbrs.length; i++) {
+      if (id[i] >= 0) continue;
+      const st = [i]; id[i] = n;
+      while (st.length) { const h = st.pop(); for (const j of nbrs[h]) if (id[j] < 0) { id[j] = n; st.push(j); } }
+      n++;
+    }
+    return { id, n };
+  }
+  function desertsOk(hexes, nbrs, islands) {
+    const per = {}; let d = 0;
+    for (let i = 0; i < hexes.length; i++) {
+      if (hexes[i].t !== 'desert') continue;
+      d++;
+      for (const j of nbrs[i]) if (hexes[j].t === 'desert') return false;
+      per[islands.id[i]] = (per[islands.id[i]] || 0) + 1;
+    }
+    const cap = Math.ceil(d / islands.n);
+    return Object.values(per).every(c => c <= cap);
+  }
   function balanceScore(hexes, nbrs, T) {
     let sc = 0;
     for (let i = 0; i < hexes.length; i++) for (const j of nbrs[i]) {
@@ -139,56 +250,117 @@ const Engine = (() => {
     }
     return sc;
   }
+  /* outer coast (faces the open sea) vs. lake shores, and the lake hexes themselves */
+  function coastInfo(coords, T) {
+    const land = new Set(coords.map(c => c.q + ',' + c.r));
+    let qmin = Infinity, qmax = -Infinity, rmin = Infinity, rmax = -Infinity;
+    for (const c of coords) { qmin = Math.min(qmin, c.q); qmax = Math.max(qmax, c.q); rmin = Math.min(rmin, c.r); rmax = Math.max(rmax, c.r); }
+    qmin -= 2; qmax += 2; rmin -= 2; rmax += 2;
+    const inB = (q, r) => q >= qmin && q <= qmax && r >= rmin && r <= rmax;
+    const ocean = new Set([qmin + ',' + rmin]);
+    const st = [[qmin, rmin]];
+    while (st.length) {
+      const [q, r] = st.pop();
+      for (const [dq, dr] of NEIGH) {
+        const nq = q + dq, nr = r + dr, k = nq + ',' + nr;
+        if (!inB(nq, nr) || land.has(k) || ocean.has(k)) continue;
+        ocean.add(k); st.push([nq, nr]);
+      }
+    }
+    const lakes = [];
+    for (let r = rmin; r <= rmax; r++) for (let q = qmin; q <= qmax; q++) { const k = q + ',' + r; if (!land.has(k) && !ocean.has(k)) lakes.push({ q, r }); }
+    const outer = [];
+    T.edges.forEach((E, i) => {
+      if (E.hexes.length !== 1) return;
+      const c = T.centers[E.hexes[0]], a = T.verts[E.a], b = T.verts[E.b];
+      const nx = (a.x + b.x) - c.x, ny = (a.y + b.y) - c.y;
+      const r = Math.round(ny / 1.5), q = Math.round(nx / Math.sqrt(3) - r / 2);
+      if (ocean.has(q + ',' + r)) outer.push(i);
+    });
+    return { outer, lakes };
+  }
+  /* spread k harbours along the outer coast: each new one as far as possible from the others */
+  function spreadEdges(T, cand, k, rng) {
+    const mid = e => { const E = T.edges[e]; return [(T.verts[E.a].x + T.verts[E.b].x) / 2, (T.verts[E.a].y + T.verts[E.b].y) / 2]; };
+    const pts = new Map(cand.map(e => [e, mid(e)]));
+    const chosen = [cand[Math.floor(rng() * cand.length)]];
+    while (chosen.length < Math.min(k, cand.length)) {
+      let best = null, bd = -1;
+      for (const e of cand) {
+        if (chosen.includes(e)) continue;
+        const [x, y] = pts.get(e);
+        let d = Infinity;
+        for (const c of chosen) { const [cx, cy] = pts.get(c); d = Math.min(d, Math.hypot(x - cx, y - cy)); }
+        d += rng() * 0.2;
+        if (d > bd) { bd = d; best = e; }
+      }
+      chosen.push(best);
+    }
+    return chosen;
+  }
   function genBoard(opts, rng) {
-    const def = MAPS[opts.map] || MAPS.standard;
-    const coords = def.coords();
+    const id = MAPS[opts.map] ? opts.map : 'standard';
+    const def = MAPS[id];
+    const coords = def.coords(rng, opts.players || 4);
+    const N = coords.length;
+    const terrains = def.terrains ? def.terrains.slice() : autoTerrains(N);
+    if (terrains.length !== N) throw new Error('map ' + id + ': ' + terrains.length + ' terrains for ' + N + ' hexes');
+    const numbers = tokens(N - terrains.filter(t => t === 'desert').length);
     const key = coords.map(c => c.q + ',' + c.r).join(';');
     const T = buildTopology(coords);
     topoCache.set(key, T);
     const balanced = opts.layout === 'balanced';
+    const islands = islandIds(T.hexNbrs);
     let best = null, bestScore = Infinity;
     for (let attempt = 0; attempt < (balanced ? 300 : 3000); attempt++) {
-      const terr = shuffle(def.terrains.slice(), rng);
-      const nums = shuffle(def.numbers.slice(), rng);
+      const terr = shuffle(terrains.slice(), rng);
+      const nums = shuffle(numbers.slice(), rng);
       const hexes = coords.map((c, i) => ({ q: c.q, r: c.r, t: terr[i], n: 0 }));
       let k = 0;
       for (const h of hexes) if (h.t !== 'desert') h.n = nums[k++];
-      if (redAdjacent(hexes, T.hexNbrs)) continue;
+      if (redAdjacent(hexes, T.hexNbrs) || !desertsOk(hexes, T.hexNbrs, islands)) continue;
       if (!balanced) { best = hexes; break; }
       const sc = balanceScore(hexes, T.hexNbrs, T);
       if (sc < bestScore) { bestScore = sc; best = hexes; }
     }
-    if (!best) { // fallback, should never happen
-      const terr = shuffle(def.terrains.slice(), rng), nums = shuffle(def.numbers.slice(), rng);
+    if (!best) {
+      const terr = shuffle(terrains.slice(), rng), nums = shuffle(numbers.slice(), rng);
       best = coords.map((c, i) => ({ q: c.q, r: c.r, t: terr[i], n: 0 }));
       let k = 0; for (const h of best) if (h.t !== 'desert') h.n = nums[k++];
     }
-    // harbours, evenly spaced along the coast
-    const coastal = [];
-    T.edges.forEach((E, i) => { if (E.hexes.length === 1) coastal.push(i); });
-    const ang = e => { const E = T.edges[e]; return Math.atan2((T.verts[E.a].y + T.verts[E.b].y) / 2, (T.verts[E.a].x + T.verts[E.b].x) / 2); };
-    coastal.sort((a, b) => ang(a) - ang(b));
-    const types = shuffle(def.ports.slice(), rng);
-    const M = coastal.length, K = types.length, off = Math.floor(rng() * M);
-    const ports = types.map((type, i) => ({ e: coastal[(off + Math.round(i * M / K)) % M], type }));
+    const geo = coastInfo(coords, T);
+    const K = def.ports || (N >= 26 ? 11 : 9);
+    const types = shuffle(portTypes(K), rng);
+    const edges = spreadEdges(T, geo.outer, K, rng);
+    const ports = edges.map((e, i) => ({ e, type: types[i] }));
     const robber = best.findIndex(h => h.t === 'desert');
-    return { key, map: opts.map || 'standard', layout: balanced ? 'balanced' : 'random', hexes: best, ports, robber: Math.max(0, robber) };
+    const board = { key, map: id, layout: balanced ? 'balanced' : 'random', hexes: best, ports, robber, lakes: geo.lakes };
+    if (robber < 0) {
+      const L = geo.lakes[0] || { q: 0, r: 0 };
+      board.robberSpot = { x: Math.sqrt(3) * (L.q + L.r / 2), y: 1.5 * L.r };
+    }
+    return board;
   }
+  function mapInfo(id) { const d = MAPS[id] || MAPS.standard; return { id: MAPS[id] ? id : 'standard', name: d.name, blurb: d.blurb, min: d.min, max: d.max }; }
 
   /* ---------------- game creation ---------------- */
   const DEFAULT_SETTINGS = { vpToWin: 10, discardLimit: 7, friendlyRobber: false, timer: 0, map: 'standard', layout: 'random', maxPlayers: 4 };
   function newGame(cfg, rng) {
     const st = Object.assign({}, DEFAULT_SETTINGS, cfg.settings || {});
-    const board = genBoard({ map: st.map, layout: st.layout }, rng);
+    const def = MAPS[st.map] || MAPS.standard;
+    const big = !!def.big || cfg.players.length >= 5;
+    const board = genBoard({ map: st.map, layout: st.layout, players: cfg.players.length }, rng);
     const T = topo({ board });
     const players = shuffle(cfg.players.map(p => ({ uid: p.uid || null, bot: !!p.bot, nick: p.nick || '', color: p.color })), rng)
       .map(p => Object.assign(p, { res: emptyRes(), dev: [], newDev: {}, knights: 0, devUsed: 0 }));
     const deck = [];
-    for (const k of Object.keys(DEV_COUNTS)) for (let i = 0; i < DEV_COUNTS[k]; i++) deck.push(k);
+    const counts = big ? DEV_COUNTS_BIG : DEV_COUNTS;
+    for (const k of Object.keys(counts)) for (let i = 0; i < counts[k]; i++) deck.push(k);
     shuffle(deck, rng);
-    const bank = {}; for (const r of RES) bank[r] = BANK_START;
+    const bankStart = big ? 24 : BANK_START;
+    const bank = {}; for (const r of RES) bank[r] = bankStart;
     const s = {
-      v: 1, settings: st, board, players, bank, deck,
+      v: 1, settings: st, board, players, bank, deck, bankStart, deckTotal: deck.length, special: null,
       bld: Array(T.verts.length).fill(null),
       roads: Array(T.edges.length).fill(-1),
       phase: 'setup', cur: 0, turn: 0,
@@ -306,6 +478,7 @@ const Engine = (() => {
   function pendingActors(s) {
     if (s.phase === 'ended') return [];
     if (s.phase === 'discard') return Object.keys(s.discard || {}).map(Number);
+    if (s.phase === 'special') return s.special && s.special.q.length ? [s.special.q[0]] : [];
     return [s.cur];
   }
 
@@ -419,7 +592,7 @@ const Engine = (() => {
     addRes(P.res, c, -1); addRes(s.bank, c, 1);
   }
   function checkWin(s) {
-    if (s.phase === 'setup' || s.phase === 'ended') return;
+    if (s.phase === 'setup' || s.phase === 'ended' || s.phase === 'special') return; // you only win on your own turn
     const c = s.cur;
     if (vp(s, c) >= s.settings.vpToWin) {
       s.phase = 'ended'; s.winner = c; s.trade = null;
@@ -435,6 +608,7 @@ const Engine = (() => {
     const P = s.players[p];
     const T = topo(s);
     const isCur = p === s.cur;
+    const canBuild = (s.phase === 'main' && isCur) || (s.phase === 'special' && s.special && s.special.q[0] === p);
     switch (a.t) {
       case 'settle': {
         const v = a.v | 0;
@@ -452,7 +626,7 @@ const Engine = (() => {
           }
           updateLR(s);
         } else {
-          need(s.phase === 'main' && isCur, 'You can only build on your turn after rolling.');
+          need(canBuild, 'You can only build on your turn after rolling.');
           need(piecesLeft(s, p).settlement > 0, 'No settlements left. Upgrade one to a city.');
           need(settlementOk(s, p, v, false), 'You can\'t build a settlement there.');
           payCost(s, p, COST.settlement);
@@ -479,7 +653,7 @@ const Engine = (() => {
           updateLR(s);
           if (s.freeRoads <= 0 || piecesLeft(s, p).road <= 0 || !legalRoads(s, p).length) { s.phase = s.resume; s.resume = null; s.freeRoads = 0; }
         } else {
-          need(s.phase === 'main' && isCur, 'You can only build on your turn after rolling.');
+          need(canBuild, 'You can only build on your turn after rolling.');
           need(piecesLeft(s, p).road > 0, 'No roads left.');
           need(roadOk(s, p, e), 'You can\'t build a road there.');
           payCost(s, p, COST.road);
@@ -491,7 +665,7 @@ const Engine = (() => {
       }
       case 'city': {
         const v = a.v | 0;
-        need(s.phase === 'main' && isCur, 'You can only build on your turn after rolling.');
+        need(canBuild, 'You can only build on your turn after rolling.');
         need(piecesLeft(s, p).city > 0, 'No cities left.');
         need(s.bld[v] && s.bld[v].p === p && !s.bld[v].city, 'Cities upgrade one of your settlements.');
         payCost(s, p, COST.city);
@@ -556,7 +730,7 @@ const Engine = (() => {
         break;
       }
       case 'buyDev': {
-        need(s.phase === 'main' && isCur, 'You can only buy on your turn after rolling.');
+        need(canBuild, 'You can only buy on your turn after rolling.');
         need(s.deck.length > 0, 'No development cards left.');
         payCost(s, p, COST.dev);
         const c = s.deck.pop();
@@ -676,10 +850,21 @@ const Engine = (() => {
         s.trade = null;
         P.newDev = {};
         s.devPlayed = false;
-        s.cur = (s.cur + 1) % s.players.length;
-        s.turn++;
-        s.phase = 'roll';
-        log(s, { k: 'turn', p: s.cur });
+        const n = s.players.length;
+        if (n >= 5) {
+          // 5-6 players: everyone else may build (no trading, no cards) before the next turn
+          const q = [];
+          for (let k = 1; k < n; k++) q.push((s.cur + k) % n);
+          s.special = { q };
+          s.phase = 'special';
+          log(s, { k: 'special', p: s.cur });
+        } else nextTurn(s);
+        break;
+      }
+      case 'pass': {
+        need(s.phase === 'special' && s.special && s.special.q[0] === p, 'It isn\'t your turn to build.');
+        s.special.q.shift();
+        if (!s.special.q.length) { s.special = null; nextTurn(s); }
         break;
       }
       default: throw err('Unknown action.');
@@ -688,11 +873,19 @@ const Engine = (() => {
     return s;
   }
 
+  function nextTurn(s) {
+    s.cur = (s.cur + 1) % s.players.length;
+    s.turn++;
+    s.phase = 'roll';
+    s.players[s.cur].newDev = {}; // cards bought before this turn (e.g. while special building) are playable now
+    log(s, { k: 'turn', p: s.cur });
+  }
+
   /* convenience: apply on a copy, return new state or throw */
   function apply(s, p, a, rng) { const n = clone(s); act(n, p, a, rng); return n; }
 
   return {
-    RES, T2R, COST, PIECES, DEV_COUNTS, PIPS, BANK_START, MAPS, DEFAULT_SETTINGS,
+    RES, T2R, COST, PIECES, DEV_COUNTS, DEV_COUNTS_BIG, PIPS, BANK_START, MAPS, MAP_ORDER, mapInfo, DEFAULT_SETTINGS,
     topo, buildTopology, genBoard, newGame, act, apply, clone, total, has, addRes, emptyRes, cleanRes, shuffle,
     piecesLeft, publicVP, vp, vpCards, playable, rates, portAt, settlementOk, roadOk,
     legalSettlements, legalRoads, legalCities, legalRobberHexes, stealCandidates, discardNeeded,

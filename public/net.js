@@ -2,6 +2,7 @@
    HEXSTEAD CLIENT NET — talks to the game server over a WebSocket.
    The server owns every online table. Practice games run locally.
    ============================================================ */
+const HEXSTEAD_VERSION = '1.1';
 const COLORS = [
   { id: 'red', name: 'Crimson', hex: '#d8463b' },
   { id: 'blue', name: 'Cobalt', hex: '#3b78e0' },
@@ -92,6 +93,7 @@ function onMessage(m) {
       if (!g || g.local || !d || d.code !== g.code) return;
       g.doc = d; g.missing = false;
       g.online = new Set(d.online || []);
+      if (Number.isFinite(m.now)) g.skew = m.now - Date.now(); // server clock minus ours, for turn timers
       onRemoteDoc(g);
       return;
     }
@@ -107,6 +109,7 @@ function onMessage(m) {
       return;
     }
     case 'error': toast(m.m || 'Something went wrong.', 'error'); return;
+    case 'pong': if (Number.isFinite(m.now) && app.g && !app.g.local) app.g.skew = m.now - Date.now(); return;
   }
 }
 
@@ -175,7 +178,6 @@ function onRemoteDoc(g) {
   const d = g.doc;
   const ap = (d.applied || {})[app.me.uid] || 0;
   g.pending = g.pending.filter(i => i.s > ap);
-  if (d.updatedAt) { const sk = d.updatedAt - Date.now(); g.skew = Number.isFinite(g.skew) ? Math.max(g.skew - 50, sk) : sk; }
   refreshView(g);
   render();
 }

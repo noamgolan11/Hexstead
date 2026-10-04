@@ -186,7 +186,7 @@ const Bot = (() => {
     const can = c => E.playable(s, p, c) > 0;
     // knight: robber hurting me, or largest army within reach
     if (can('knight')) {
-      const onMe = T.hexVerts[s.board.robber].some(v => s.bld[v] && s.bld[v].p === p) && (E.PIPS[s.board.hexes[s.board.robber].n] || 0) >= 3;
+      const onMe = s.board.robber >= 0 && T.hexVerts[s.board.robber].some(v => s.bld[v] && s.bld[v].p === p) && (E.PIPS[s.board.hexes[s.board.robber].n] || 0) >= 3;
       const holderN = s.la.p >= 0 ? s.players[s.la.p].knights : 2;
       const army = s.la.p !== p && P.knights + 1 >= 3 && P.knights + 1 > holderN;
       if (onMe || army) return { t: 'play', card: 'knight' };
@@ -245,6 +245,7 @@ const Bot = (() => {
     }
     // trade response (non-active players)
     if (s.trade && s.trade.from !== p && s.trade.resp[p] === undefined && p !== s.cur) return respondTrade(s, p);
+    if (s.phase === 'special') return specialBuild(s, p, prod, rng, opts);
     if (p !== s.cur) return null;
 
     if (s.phase === 'setup') {
@@ -315,6 +316,28 @@ const Bot = (() => {
     const tr = bankTradeToward(s, p, goal, E.total(P.res) > s.settings.discardLimit);
     if (tr) return tr;
     return { t: 'end' };
+  }
+
+  /* special building phase (5-6 players): build if it helps, otherwise pass */
+  function specialBuild(s, p, prod, rng, opts) {
+    if (!s.special || s.special.q[0] !== p) return null;
+    if (opts.autopilot || actionsThisTurn(s, p) > 6) return { t: 'pass' };
+    const P = s.players[p];
+    const left = E.piecesLeft(s, p);
+    if (left.city > 0 && E.has(P.res, E.COST.city)) {
+      const cs = E.legalCities(s, p);
+      if (cs.length) return { t: 'city', v: bestBy(cs, v => vertexValue(s, v, p, null)) };
+    }
+    if (left.settlement > 0 && E.has(P.res, E.COST.settlement)) {
+      const spots = E.legalSettlements(s, p, false);
+      if (spots.length) return { t: 'settle', v: bestBy(spots, v => vertexValue(s, v, p, prod)) };
+    }
+    if (left.road > 0 && left.settlement > 0 && E.has(P.res, E.COST.road) && E.legalSettlements(s, p, false).length < 1) {
+      const e = roadTowardTarget(s, p, prod);
+      if (e >= 0 && E.roadOk(s, p, e)) return { t: 'road', e };
+    }
+    if (s.deck.length && E.has(P.res, E.COST.dev) && E.total(P.res) > s.settings.discardLimit) return { t: 'buyDev' };
+    return { t: 'pass' };
   }
 
   return { decide, vertexValue, prodOf };

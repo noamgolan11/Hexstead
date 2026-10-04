@@ -60,7 +60,7 @@ const sockets = new Set();
 
 function send(ws, m) { if (ws.readyState === 1) ws.send(JSON.stringify(m)); }
 const hooks = {
-  broadcast(t) { for (const ws of t.subs) send(ws, { t: 'state', doc: t.viewFor(ws.uid) }); },
+  broadcast(t) { for (const ws of t.subs) send(ws, { t: 'state', doc: t.viewFor(ws.uid), now: Date.now() }); },
   indexChanged(t) {
     const e = t.indexEntry();
     const key = [e.status, e.n, e.max, e.uids.join(',')].join('|');
@@ -114,7 +114,7 @@ function handle(ws, m) {
       if (ws.lobby) sendTables(ws);
       return;
     }
-    case 'ping': return send(ws, { t: 'pong' });
+    case 'ping': return send(ws, { t: 'pong', now: Date.now() });
     case 'lobby': ws.lobby = !!m.on; if (ws.lobby) sendTables(ws); return;
     case 'create': {
       if (tables.size >= MAX_TABLES) return send(ws, { t: 'error', m: 'The server is full right now. Try again later.' });
@@ -145,7 +145,7 @@ function handle(ws, m) {
       const s = Number.isFinite(m.s) ? m.s : undefined;
       const r = t.submit(ws.uid, s, m.a);
       if (!r.ok) send(ws, { t: 'rej', code: t.doc.code, s, m: r.err });
-      if (r.dup || !r.ok) send(ws, { t: 'state', doc: t.viewFor(ws.uid) });
+      if (r.dup || !r.ok) send(ws, { t: 'state', doc: t.viewFor(ws.uid), now: Date.now() });
       return;
     }
     case 'delete': {

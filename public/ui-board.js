@@ -94,6 +94,33 @@ const SETTLE_PATH = 'M-12 11H12V-2L0-13-12-2Z';
 const CITY_PATH = 'M-19 13H19V-4H5V-10L-7-20-19-10Z';
 const ROBBER_PATH = 'M-11 16C-11 5-8-1-5.5-3.5-10-7-9.5-17 0-18.5 9.5-17 10-7 5.5-3.5 8-1 11 5 11 16Z';
 
+function axialPoints(q, r, k, S) {
+  const cx = Math.sqrt(3) * (q + r / 2), cy = 1.5 * r; const pts = [];
+  for (let i = 0; i < 6; i++) { const a = Math.PI / 180 * (60 * i - 90); pts.push(((cx + Math.cos(a) * k) * S).toFixed(1) + ',' + ((cy + Math.sin(a) * k) * S).toFixed(1)); }
+  return pts.join(' ');
+}
+function lakeSVG(L, S) {
+  const cx = Math.sqrt(3) * (L.q + L.r / 2) * S, cy = 1.5 * L.r * S;
+  return `<polygon points="${axialPoints(L.q, L.r, 1.02, S)}" fill="#2f6f93" stroke="#cdb87d" stroke-width="3"/><g stroke="#8cc3dd" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7"><path d="M${(cx - 30).toFixed(1)} ${(cy - 22).toFixed(1)}q10-7 20 0t20 0"/><path d="M${(cx - 14).toFixed(1)} ${(cy + 26).toFixed(1)}q10-7 20 0t20 0"/></g>`;
+}
+/* a small picture of a map's shape for the map picker */
+const thumbCache = {};
+function mapThumb(id) {
+  if (thumbCache[id]) return thumbCache[id];
+  let b;
+  try { b = Engine.genBoard({ map: id, layout: 'balanced', players: 4 }, Math.random); } catch (e) { return ''; }
+  const S = 10;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const all = b.hexes.concat(b.lakes || []);
+  for (const h of all) { const x = Math.sqrt(3) * (h.q + h.r / 2), y = 1.5 * h.r; minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+  const pad = 1.4;
+  const vb = [(minX - pad) * S, (minY - pad) * S, (maxX - minX + 2 * pad) * S, (maxY - minY + 2 * pad) * S].map(n => n.toFixed(1)).join(' ');
+  const shore = b.hexes.map(h => `<polygon points="${axialPoints(h.q, h.r, 1.14, S)}" fill="#e3d29d"/>`).join('');
+  const land = b.hexes.map(h => `<polygon points="${axialPoints(h.q, h.r, 0.94, S)}" fill="${TERRAIN[h.t].base}"/>`).join('');
+  const lakes = (b.lakes || []).map(L => `<polygon points="${axialPoints(L.q, L.r, 1.0, S)}" fill="#2f6f93"/>`).join('');
+  return (thumbCache[id] = `<svg viewBox="${vb}" aria-hidden="true">${shore}${lakes}${land}</svg>`);
+}
+
 /* opts: targets {v:[],e:[],h:[]}, glow (roll sum or 0), fresh (Set of keys), colors fn */
 function boardSVG(s, opts) {
   opts = opts || {};
@@ -109,6 +136,7 @@ function boardSVG(s, opts) {
   out.push('<g>');
   s.board.hexes.forEach((h, hi) => out.push(`<polygon points="${hexPoints(T, hi, 1.16)}" fill="#e3d29d" stroke="#f1e6bf" stroke-width="5" stroke-linejoin="round"/>`));
   s.board.hexes.forEach((h, hi) => out.push(`<polygon points="${hexPoints(T, hi, 1.07)}" fill="#cdb87d"/>`));
+  for (const L of s.board.lakes || []) out.push(lakeSVG(L, S));
   out.push('</g>');
   // harbours
   for (const pt of s.board.ports) {
@@ -165,8 +193,9 @@ function boardSVG(s, opts) {
   });
   // robber
   {
-    const hi = s.board.robber; const h = s.board.hexes[hi]; const c = T.centers[hi];
-    const X = c.x * S + (h.n ? 44 : 0), Y = c.y * S + (h.n ? 4 : 0);
+    const hi = s.board.robber; const h = s.board.hexes[hi];
+    const c = hi >= 0 ? T.centers[hi] : (s.board.robberSpot || { x: 0, y: 0 });
+    const X = c.x * S + (h && h.n ? 44 : 0), Y = c.y * S + (h && h.n ? 4 : 0);
     out.push(`<g transform="translate(${X.toFixed(1)} ${Y.toFixed(1)})" pointer-events="none"><ellipse cx="0" cy="17" rx="14" ry="4.5" fill="rgba(0,0,0,.35)"/><path d="${ROBBER_PATH}" fill="#24242e" stroke="#0a0a0e" stroke-width="2"/><ellipse cx="-3" cy="-12" rx="2.5" ry="3.5" fill="#4a4a58"/></g>`);
   }
   // interactive targets
