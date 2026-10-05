@@ -132,9 +132,33 @@ function trAllowed(uid) {
   return true;
 }
 const decodeEntities = t => String(t).replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+// Google Cloud Translation, used first when the site owner sets GOOGLE_TRANSLATE_KEY (it has a monthly free allowance)
+const GOOGLE_URL = process.env.GOOGLE_TRANSLATE_URL || 'https://translation.googleapis.com/language/translate/v2';
+async function googleTranslate(text, to, from) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const body = { q: text, target: to, format: 'text' };
+    if (from) body.source = from;
+    const r = await fetch(GOOGLE_URL + '?key=' + encodeURIComponent(process.env.GOOGLE_TRANSLATE_KEY), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: ctl.signal });
+    const j = await r.json();
+    if (!r.ok) return { err: r.status === 403 || r.status === 429 ? 'quota' : 'failed' };
+    const t = j && j.data && j.data.translations && j.data.translations[0];
+    if (!t || !t.translatedText) return { err: 'failed' };
+    const src = String(t.detectedSourceLanguage || from || '').replace(/^iw$/, 'he').slice(0, 12);
+    const out = decodeEntities(t.translatedText);
+    if (src && src.split('-')[0] === to.split('-')[0]) return { same: true };
+    if (out.trim().toLowerCase() === text.trim().toLowerCase()) return { same: true };
+    return { text: out.slice(0, 400), from: src };
+  } catch (e) { return { err: 'failed' }; } finally { clearTimeout(timer); }
+}
 async function translate(text, to, from) {
   const key = (from || '') + '>' + to + '|' + text;
   if (trCache.has(key)) return trCache.get(key);
+  if (process.env.GOOGLE_TRANSLATE_KEY) {
+    const g = await googleTranslate(text, to, from);
+    if (!g.err) { trCache.set(key, g); return g; }
+  }
   let url = TR_URL + '?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent((from || 'autodetect') + '|' + to);
   if (process.env.MYMEMORY_EMAIL) url += '&de=' + encodeURIComponent(process.env.MYMEMORY_EMAIL);
   const ctl = new AbortController();
@@ -163,7 +187,7 @@ function handle(ws, m) {
       if (typeof m.token !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(m.token)) return send(ws, { t: 'error', m: 'Bad session token.' });
       if (ws.uid && ws.uid !== uidOf(m.token)) return send(ws, { t: 'error', m: 'This connection already has a player.' });
       ws.uid = uidOf(m.token);
-      send(ws, { t: 'welcome', uid: ws.uid });
+      send(ws, { t: 'welcome', uid: ws.uid, tr: process.env.GOOGLE_TRANSLATE_KEY ? 'server' : '' }); // tells the page the server has a dependable translator
       if (ws.lobby) sendTables(ws);
       return;
     }

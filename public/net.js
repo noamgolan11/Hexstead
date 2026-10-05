@@ -2,7 +2,7 @@
    HEXSTEAD CLIENT NET — talks to the game server over a WebSocket.
    The server owns every online table. Practice games run locally.
    ============================================================ */
-const HEXSTEAD_VERSION = '2.2';
+const HEXSTEAD_VERSION = '2.2.1';
 const COLORS = [
   { id: 'red', name: 'Crimson', hex: '#d8463b' },
   { id: 'blue', name: 'Cobalt', hex: '#3b78e0' },
@@ -83,7 +83,7 @@ function onlineReady() { return app.conn.state === 'open' && !!app.me.uid; }
 function onMessage(m) {
   const g = app.g;
   switch (m.t) {
-    case 'welcome': app.me.uid = m.uid; render(); return;
+    case 'welcome': app.me.uid = m.uid; app.serverTranslates = m.tr === 'server'; render(); return;
     case 'tables': app.lobbyList = m.list || []; if (app.view === 'home') renderHomeTables(); return;
     case 'created':
       if (app.wantCreate) { app.wantCreate = false; enterOnline(m.code, true); }
@@ -296,6 +296,7 @@ async function translateText(text, to) {
   if (from === to) return { same: true };
   const own = await builtInTranslate(text, from, to);
   if (own) return own;
+  if (app.serverTranslates) { const first = await viaServer(text, to, from); if (!first.err) return first; } // the site has its own translator set up
   let sawQuota = false;
   try {
     const ctl = new AbortController();

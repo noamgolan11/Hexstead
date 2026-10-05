@@ -936,7 +936,7 @@ function chatLine(d, c, i) {
   if (tr && tr.shown) {
     if (tr.state === 'loading') out = '<div class="tr-out note">Translating…</div>';
     else if (tr.state === 'same') out = `<div class="tr-out note">Already in ${esc(langName(tr.to))}.</div>`;
-    else if (tr.state === 'err') out = `<div class="tr-out note">${tr.err === 'quota' ? 'The free translator\'s daily allowance is used up for now. Tap to try again later.' : 'Couldn\'t translate that right now. Tap to try again.'}</div>`;
+    else if (tr.state === 'err') out = `<div class="tr-out note">${tr.err === 'quota' ? 'The free translator has hit its daily limit for your connection and for the game server. Tap to try again later.' : 'Couldn\'t translate that right now. Tap to try again.'}</div>`;
     else out = `<div class="tr-out"><span class="tr-from">${esc(langName(tr.from) || 'Translated')} → ${esc(langName(tr.to))}</span><span dir="auto">${esc(tr.text)}</span></div>`;
   }
   const btn = mine ? '' : `<button class="tr-btn${tr && tr.shown ? ' on' : ''}" data-act="translate" data-k="${i}" title="${tr && tr.shown ? 'Hide translation' : 'Translate'}" aria-label="${tr && tr.shown ? 'Hide translation' : 'Translate this message'}">${ic('translate')}</button>`;

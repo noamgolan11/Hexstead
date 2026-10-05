@@ -580,6 +580,7 @@ aside.side { border-left: 1px solid var(--line); background: var(--panel); displ
 .emote-bubble.center { transform: translate(-50%, -50%); }
 .emote-bubble.top { transform: translate(-50%, -100%); }
 .emote-bubble.out { opacity: 0; }
+.emote-bubble.placed { transform: none; }
 .emote-bubble .eb-body { background: rgba(13, 31, 47, .96); border: 2px solid var(--pc); border-radius: 18px; padding: 6px 12px; font-weight: 700; font-size: 15px; color: var(--parch); box-shadow: var(--shadow); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
 .emote-bubble.big .eb-body { font-size: 46px; line-height: 1; padding: 6px 10px; background: rgba(13, 31, 47, .85); border-radius: 22px; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
 .emote-bubble .eb-body .ri { width: 22px; height: 22px; }
