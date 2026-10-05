@@ -22,11 +22,22 @@ const FILES = {
   '/favicon.svg': ['public/favicon.svg', 'image/svg+xml'],
   '/engine.js': ['shared/engine.js', JS],
   '/bot.js': ['shared/bot.js', JS],
+  '/quick.js': ['shared/quick.js', JS],
   '/net.js': ['public/net.js', JS],
   '/audio.js': ['public/audio.js', JS],
   '/ui-board.js': ['public/ui-board.js', JS],
   '/fx.js': ['public/fx.js', JS],
+  '/emotes.js': ['public/emotes.js', JS],
   '/ui.js': ['public/ui.js', JS],
+  '/sw.js': ['public/sw.js', JS],
+  // for a Google Play version: put the file PWABuilder gives you at public/assetlinks.json
+  '/.well-known/assetlinks.json': ['public/assetlinks.json', 'application/json'],
+  '/manifest.webmanifest': ['public/manifest.webmanifest', 'application/manifest+json'],
+  '/apple-touch-icon.png': ['public/icons/apple-touch-icon.png', 'image/png'],
+  '/icons/apple-touch-icon.png': ['public/icons/apple-touch-icon.png', 'image/png'],
+  '/icons/icon-192.png': ['public/icons/icon-192.png', 'image/png'],
+  '/icons/icon-512.png': ['public/icons/icon-512.png', 'image/png'],
+  '/icons/icon-maskable-512.png': ['public/icons/icon-maskable-512.png', 'image/png'],
 };
 const cache = new Map();
 function fileFor(url) {

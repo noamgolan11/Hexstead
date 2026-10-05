@@ -53,6 +53,7 @@ const ICON_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidd
 <symbol id="i-bank" viewBox="0 0 24 24"><path d="M2.5 9.5 12 3.8l9.5 5.7z" fill="currentColor"/><rect x="3.5" y="18.2" width="17" height="2.6" rx="1" fill="currentColor"/><path d="M6 11.5v5M10 11.5v5M14 11.5v5M18 11.5v5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
 <symbol id="i-people" viewBox="0 0 24 24"><circle cx="8.5" cy="8" r="3.3" fill="currentColor"/><path d="M2 20c.4-4 3-6.3 6.5-6.3S14.6 16 15 20z" fill="currentColor"/><circle cx="16.8" cy="8.8" r="2.8" fill="currentColor" opacity=".7"/><path d="M15.6 13.9c.4-.1.8-.1 1.2-.1 3 0 5 2 5.2 6.2h-5.2c-.1-2.4-.5-4.4-1.2-6.1z" fill="currentColor" opacity=".7"/></symbol>
 <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="12" cy="12" r="3" fill="currentColor"/></symbol>
+<symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/><path d="M8 14.2c1 1.6 2.4 2.4 4 2.4s3-.8 4-2.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 <symbol id="i-robber" viewBox="0 0 24 24"><path d="M6.5 21c0-6 1.5-8.5 3-9.5-1.8-1.2-1.8-6.5 2.5-6.5s4.3 5.3 2.5 6.5c1.5 1 3 3.5 3 9.5z" fill="currentColor"/></symbol>
 </defs></svg>`;
 

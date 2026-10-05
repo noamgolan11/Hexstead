@@ -2,6 +2,7 @@
 const crypto = require('crypto');
 const Engine = require('../shared/engine.js');
 const Bot = require('../shared/bot.js');
+const Quick = require('../shared/quick.js');
 
 const COLORS = ['red', 'blue', 'orange', 'white', 'green', 'purple'];
 const BOT_NAMES = ['Ada', 'Bram', 'Cleo', 'Dov', 'Esme', 'Finn', 'Gus', 'Hana'];
@@ -57,6 +58,22 @@ class Table {
     const freeColor = () => COLORS.find(c => !d.seats.some(s => s.color === c)) || COLORS[0];
     if (!a || typeof a.t !== 'string') fail('Unknown action.');
     switch (a.t) {
+      case 'emote': {
+        // an emote or a ready-made phrase; phrases also go in the chat, shown in each reader's language
+        if (!d.seats.some(x => !x.bot && x.uid === uid)) fail('Take a seat to send emotes.');
+        const q = Quick.clean(a);
+        if (!q) fail('Unknown emote.');
+        const now = Date.now();
+        const mine = (d.emotes || []).filter(x => x.uid === uid && now - x.at < 20000);
+        if (mine.length >= 8 || (mine.length && now - mine[mine.length - 1].at < 900)) fail('Slow down a little.');
+        this.pushEmote(Object.assign({ uid }, q));
+        if (q.q) {
+          d.chat.push(Object.assign({ uid, at: now }, q));
+          if (d.chat.length > 80) d.chat.splice(0, d.chat.length - 80);
+          if (q.q === 'gg' && d.status === 'ended') this.botsSay('gg');
+        }
+        return;
+      }
       case 'chat': {
         const text = String(a.text || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200);
         if (!text) fail('Empty message.');
@@ -137,6 +154,7 @@ class Table {
           friendlyRobber: !!(x.friendlyRobber ?? st.friendlyRobber),
           timer: [0, 60, 90, 120, 180, 300].includes(tm) ? tm : 0,
           layout: (x.layout ?? st.layout) === 'balanced' ? 'balanced' : 'random',
+          dice: (x.dice ?? st.dice) === 'balanced' ? 'balanced' : 'random',
           map,
           maxPlayers: clampInt(x.maxPlayers ?? st.maxPlayers, Math.max(2, d.seats.length), cap, Math.min(4, cap)),
         });
@@ -175,9 +193,43 @@ class Table {
         if (d.status !== 'playing' || !d.game) fail('The game hasn\'t started.');
         const p = d.game.players.findIndex(pl => !pl.bot && pl.uid === uid);
         if (p < 0) fail('You\'re watching this game.');
+        const prev = d.game;
         d.game = Engine.apply(d.game, p, a, rng);
+        this.botReact(prev, d.game);
       }
     }
+  }
+
+  /* ---- emotes ---- */
+  pushEmote(x) {
+    const d = this.doc;
+    d.emoteN = (d.emoteN || 0) + 1;
+    d.emotes = (d.emotes || []).concat([Object.assign({ n: d.emoteN, at: Date.now() }, x)]).slice(-20);
+  }
+  // bots now and then react to what just happened to them (being robbed, a good trade, a win)
+  botReact(prev, next) {
+    const now = Date.now();
+    this.botEmoteAt = this.botEmoteAt || {};
+    for (const r of Quick.reactions(prev, next, rng)) {
+      if (now - (this.botEmoteAt[r.p] || 0) < 6000) continue;
+      this.botEmoteAt[r.p] = now;
+      this.pushEmote({ p: r.p, e: r.e });
+    }
+  }
+  // after someone says "good game", some bots say it back, a moment later
+  botsSay(q) {
+    const s = this.doc.game;
+    if (!s) return;
+    s.players.forEach((pl, i) => {
+      if (!pl.bot || rng() > 0.5) return;
+      setTimeout(() => {
+        if (this.doc.game !== s && this.doc.status !== 'ended') return;
+        this.pushEmote({ p: i, q });
+        this.doc.chat.push({ uid: null, p: i, q, at: Date.now() });
+        if (this.doc.chat.length > 80) this.doc.chat.splice(0, this.doc.chat.length - 80);
+        this.changed();
+      }, 700 + Math.floor(rng() * 1600));
+    });
   }
 
   submit(uid, s, a) {
@@ -245,7 +297,7 @@ class Table {
       if (!logged.has(p)) { logged.add(p); Engine.addLog(d.game, { k: 'timeout', p }); }
       changed = true;
     }
-    if (changed) this.changed();
+    if (changed) { this.botReact(s, d.game); this.changed(); }
   }
 
   /* ---- bots ---- */
@@ -297,6 +349,7 @@ class Table {
       let ok = false;
       for (const t of tries) { try { d.game = Engine.apply(s, p, t, rng); ok = true; break; } catch (e) { } }
       if (!ok) { console.error('bot stuck', s.phase, a && a.t); continue; }
+      this.botReact(s, d.game);
       this.changed();
       return;
     }

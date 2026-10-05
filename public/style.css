@@ -555,3 +555,39 @@ aside.side { border-left: 1px solid var(--line); background: var(--panel); displ
   .fx-dice-sum { font-size: 36px; }
 }
 @media (min-width: 1181px) { .ticker { top: 76px; } }
+
+.dice-mode { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 6px; }
+
+/* ---------- emotes and quick chat (emotes.js) ---------- */
+.emote-fab { position: absolute; right: 12px; bottom: 12px; z-index: 6; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: rgba(13, 31, 47, .92); color: var(--brass); display: grid; place-items: center; cursor: pointer; box-shadow: var(--shadow); padding: 0; }
+.emote-fab svg { width: 26px; height: 26px; }
+.emote-fab:hover { background: var(--panel-3); }
+.chat-form .btn.icon svg { width: 20px; height: 20px; }
+.emote-pop { position: fixed; z-index: 70; width: min(340px, calc(100vw - 16px)); box-sizing: border-box; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px; box-shadow: var(--shadow); animation: tin .15s ease; }
+.emote-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.emote-grid button { font-size: 26px; line-height: 1; height: 44px; border: 0; border-radius: 10px; background: var(--panel-2); cursor: pointer; transition: transform .1s, background .1s; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+.emote-grid button:hover { background: var(--panel-3); transform: scale(1.12); }
+.emote-phrases { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px; }
+.emote-phrases button, .emote-need button { border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 8px; padding: 6px 8px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: start; }
+.emote-phrases button:hover, .emote-need button:hover { background: var(--panel-3); border-color: #2f5676; }
+.emote-need { display: flex; gap: 4px; align-items: center; margin-top: 8px; flex-wrap: wrap; font-size: 13px; font-weight: 600; color: var(--muted); }
+.emote-need span { margin-inline-end: 4px; }
+.emote-need button { padding: 4px 6px; display: grid; place-items: center; }
+.emote-need .ri { width: 20px; height: 20px; }
+.emote-mute { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.emote-bubble { position: fixed; z-index: 46; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 2px; animation: ebpop .45s cubic-bezier(.2, 1.6, .4, 1) both; transition: opacity .35s, transform .35s; }
+.emote-bubble.left { transform: translate(-100%, -50%); align-items: flex-end; }
+.emote-bubble.center { transform: translate(-50%, -50%); }
+.emote-bubble.top { transform: translate(-50%, -100%); }
+.emote-bubble.out { opacity: 0; }
+.emote-bubble .eb-body { background: rgba(13, 31, 47, .96); border: 2px solid var(--pc); border-radius: 18px; padding: 6px 12px; font-weight: 700; font-size: 15px; color: var(--parch); box-shadow: var(--shadow); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+.emote-bubble.big .eb-body { font-size: 46px; line-height: 1; padding: 6px 10px; background: rgba(13, 31, 47, .85); border-radius: 22px; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+.emote-bubble .eb-body .ri { width: 22px; height: 22px; }
+.emote-bubble .eb-name { font-size: 12px; font-weight: 800; color: var(--pc); background: rgba(8, 21, 31, .9); padding: 1px 8px; border-radius: 99px; }
+@keyframes ebpop { 0% { opacity: 0; scale: .3 } 70% { opacity: 1; scale: 1.12 } 100% { scale: 1 } }
+.qc { color: var(--brass); font-weight: 600; }
+.qc .ri { width: 1.1em; height: 1.1em; }
+@media (max-width: 760px) {
+  .emote-fab { bottom: 40px; right: 8px; width: 42px; height: 42px; }
+  .board-wrap:has(.float-trade) .emote-fab { display: none; }
+}

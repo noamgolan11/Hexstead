@@ -2,7 +2,7 @@
    HEXSTEAD CLIENT NET — talks to the game server over a WebSocket.
    The server owns every online table. Practice games run locally.
    ============================================================ */
-const HEXSTEAD_VERSION = '2.1';
+const HEXSTEAD_VERSION = '2.2';
 const COLORS = [
   { id: 'red', name: 'Crimson', hex: '#d8463b' },
   { id: 'blue', name: 'Cobalt', hex: '#3b78e0' },
@@ -13,7 +13,7 @@ const COLORS = [
 ];
 const COLOR_HEX = Object.fromEntries(COLORS.map(c => [c.id, c.hex]));
 const BOT_NAMES = ['Ada', 'Bram', 'Cleo', 'Dov', 'Esme', 'Finn', 'Gus', 'Hana'];
-const META_ACTS = new Set(['join', 'leave', 'nick', 'color', 'addBot', 'botLevel', 'kick', 'settings', 'start', 'chat', 'rematch', 'autoplay']);
+const META_ACTS = new Set(['join', 'leave', 'nick', 'color', 'addBot', 'botLevel', 'kick', 'settings', 'start', 'chat', 'rematch', 'autoplay', 'emote']);
 // actions whose result depends on dice, hidden cards or other players' hands: never predicted locally
 const RANDOM_ACTS = new Set(['roll', 'buyDev', 'steal', 'robber', 'confirm']);
 
@@ -329,14 +329,39 @@ class LocalHost {
   submit(uid, a) {
     try {
       const d = this.doc;
+      if (a.t === 'emote') { // emotes work in practice too; the bots might answer a "good game"
+        const q = Quick.clean(a);
+        if (!q) return { ok: false, err: 'Unknown emote.' };
+        this.pushEmote(Object.assign({ uid: 'me' }, q));
+        if (q.q === 'gg' && d.status === 'ended') d.game.players.forEach((pl, i) => { if (pl.bot && rng() < 0.5) setTimeout(() => { this.pushEmote({ p: i, q: 'gg' }); this.changed(true); }, 700 + Math.floor(rng() * 1600)); });
+        this.changed(true);
+        return { ok: true };
+      }
       if (a.t === 'chat' || META_ACTS.has(a.t)) return { ok: false, err: 'Not available in practice games.' };
       if (d.status !== 'playing') return { ok: false, err: 'The game is over.' };
+      const prev = d.game;
       d.game = Engine.apply(d.game, 0 + d.game.players.findIndex(p => p.uid === 'me'), a, rng);
+      this.botReact(prev, d.game);
       this.changed();
       return { ok: true };
     } catch (e) { if (!e.rule) console.warn(e); return { ok: false, err: e.rule ? e.message : 'Something went wrong with that move.' }; }
   }
-  changed() {
+  pushEmote(x) {
+    const d = this.doc;
+    d.emoteN = (d.emoteN || 0) + 1;
+    d.emotes = (d.emotes || []).concat([Object.assign({ n: d.emoteN, at: Date.now() }, x)]).slice(-20);
+  }
+  botReact(prev, next) {
+    const now = Date.now();
+    this.botEmoteAt = this.botEmoteAt || {};
+    for (const r of Quick.reactions(prev, next, rng)) {
+      if (now - (this.botEmoteAt[r.p] || 0) < 6000) continue;
+      this.botEmoteAt[r.p] = now;
+      this.pushEmote({ p: r.p, e: r.e });
+    }
+  }
+  changed(onlyShow) {
+    if (onlyShow) { if (!this.stopped || this.doc.status === 'ended') { this.g.view = this.doc; render(); } return; }
     if (this.stopped) return;
     const d = this.doc;
     if (d.game && d.game.phase === 'ended' && d.status === 'playing') { d.status = 'ended'; d.endedAt = Date.now(); }
@@ -382,6 +407,7 @@ class LocalHost {
       let ok = false;
       for (const t of tries) { try { d.game = Engine.apply(s, p, t, rng); ok = true; break; } catch (e) { } }
       if (!ok) { console.warn('bot stuck', s.phase); continue; }
+      this.botReact(s, d.game);
       this.changed();
       return;
     }

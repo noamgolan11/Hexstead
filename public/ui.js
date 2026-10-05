@@ -1,7 +1,8 @@
 /* ============================================================
    HEXSTEAD UI — screens, panels, modals, events
    ============================================================ */
-app.ui.practice = { bots: 3, vp: 10, layout: 'balanced', friendly: false };
+app.ui.practice = { bots: 3, vp: 10, layout: 'balanced', friendly: false, dice: 'random' };
+const DICE_HELP = 'Balanced dice draw each roll from a shuffled deck of all 36 dice results, so over a game every number comes up about as often as the odds say.';
 app.ui.fresh = new Map();
 app.ui.prevPieces = null;
 app.ui.glowRoll = null;
@@ -64,7 +65,7 @@ function render() {
   if (app.view === 'home') renderHome(); else renderRoom();
   if (app.view === 'room' && app.g && app.g.view && typeof FX !== 'undefined') FX.run(app.g.view); // before pop-ups, so a roll is seen first
   renderModal();
-  if (app.view === 'room' && app.g && app.g.view) gameSounds(app.g.view);
+  if (app.view === 'room' && app.g && app.g.view) { gameSounds(app.g.view); if (typeof Emotes !== 'undefined') Emotes.run(app.g.view); }
 }
 
 /* ---------- sound: play each new game event once ---------- */
@@ -259,6 +260,7 @@ function renderPractice() {
     <div class="field"><span class="lbl">Bot difficulty</span><div class="seg" role="group" aria-label="Bot difficulty">${Bot.LEVELS.map(l => `<button data-act="plevel" data-v="${l}" aria-pressed="${(p.level || 'normal') === l}" title="${esc(LEVEL_HELP[l])}">${l[0].toUpperCase() + l.slice(1)}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl">Points to win</span>${stepper('pvp', p.vp, 5, 20)}</div>
     <div class="field"><span class="lbl">Board</span><div class="seg" role="group" aria-label="Board layout">${[['random', 'Random'], ['balanced', 'Balanced']].map(([k, l]) => `<button data-act="playout" data-v="${k}" aria-pressed="${p.layout === k}">${l}</button>`).join('')}</div></div>
+    <div class="field"><span class="lbl" title="${esc(DICE_HELP)}">Dice</span><div class="seg" role="group" aria-label="Dice">${[['random', 'Random'], ['balanced', 'Balanced']].map(([k, l]) => `<button data-act="pdice" data-v="${k}" aria-pressed="${p.dice === k}" title="${k === 'balanced' ? esc(DICE_HELP) : 'Ordinary random dice'}">${l}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl">Friendly robber</span><label class="switch"><input type="checkbox" id="pfriendly" ${p.friendly ? 'checked' : ''}> <span class="note">Protect players with 2 points or fewer</span></label></div>
   </div>`);
   const f = $('#pfriendly'); if (f) f.onchange = () => { p.friendly = f.checked; };
@@ -288,6 +290,7 @@ function rulesHTML() {
       <li>You can play one development card per turn, but not one you bought this turn.</li>
     </ul></div>
     <div><h4>Rolling a 7</h4><ul>
+      <li>With <b>balanced dice</b> (a house rule), rolls come from a shuffled deck of all 36 results, reshuffled when 4 are left.</li>
       <li>Anyone holding more than 7 cards discards half.</li>
       <li>The roller moves the robber, which blocks that hex, and steals a card from a neighbour.</li>
     </ul></div>
@@ -329,7 +332,7 @@ function renderRoom() {
           <div class="tabs" role="tablist" id="feedTabs"></div>
           <div class="feed-list" id="logList" role="log" aria-label="Game log"></div>
           <div class="feed-list" id="chatList" role="log" aria-label="Chat" hidden></div>
-          <form class="chat-form" id="chatForm" autocomplete="off"><input class="input" id="chatInput" maxlength="200" placeholder="Message the table" aria-label="Chat message"><button class="btn" type="submit">Send</button></form>
+          <form class="chat-form" id="chatForm" autocomplete="off"><input class="input" id="chatInput" maxlength="200" placeholder="Message the table" aria-label="Chat message"><button class="btn icon" type="button" data-act="emotes" aria-label="Emotes and quick chat" title="Emotes and quick chat">${ic('smile')}</button><button class="btn" type="submit">Send</button></form>
         </div>
       </aside>`;
     $('#chatForm').addEventListener('submit', e => {
@@ -452,6 +455,7 @@ function renderLobby(stage, d) {
       <div class="field"><span class="lbl">Players</span>${seg('maxPlayers', [2, 3, 4, 5, 6].filter(n => n <= Engine.mapInfo(st.map).max).map(n => [n, String(n), n < d.seats.length]), st.maxPlayers)}</div>
       <div class="field"><span class="lbl">Turn timer</span>${seg('timer', [[0, 'Off'], [60, '60s'], [90, '90s'], [120, '2m'], [180, '3m']], st.timer)}</div>
       <div class="field"><span class="lbl">Board</span>${seg('layout', [['random', 'Random'], ['balanced', 'Balanced']], st.layout)}</div>
+      <div class="field"><span class="lbl" title="${esc(DICE_HELP)}">Dice</span>${seg('dice', [['random', 'Random'], ['balanced', 'Balanced']], st.dice || 'random')}</div>
       <div class="field"><span class="lbl">Friendly robber</span>${seg('friendlyRobber', [['false', 'Off'], ['true', 'On']], st.friendlyRobber)}</div>
     </div>`);
   setHTML($('#lobbyStart'), isOwner
@@ -509,6 +513,7 @@ function renderTable(stage, d) {
     stage.innerHTML = `<div class="board-wrap" id="boardWrap">
         <svg id="board" role="img" aria-label="Game board" preserveAspectRatio="xMidYMid meet"><g id="bMain"></g><g id="bGlow"></g><g id="bFx"></g><g id="bPrev"></g><g id="bTgt"></g></svg>
         <div class="peek-note" id="peekNote" hidden></div>
+        <button class="emote-fab" id="emoteFab" data-act="emotes" aria-label="Emotes and quick chat" title="Emotes and quick chat" hidden>${ic('smile')}</button>
         <div class="hud hud-dice" id="hudDice"></div>
         <div class="hud hud-bank" id="hudBank"></div>
         <div class="banner-wrap"><div class="banner" id="banner" role="status"></div></div>
@@ -556,12 +561,13 @@ function renderTable(stage, d) {
   // dice
   if (s.dice) {
     const last = [...s.log].reverse().find(e => e.k === 'roll');
-    setHTML($('#hudDice'), `${dieSVG(s.dice[0])}${dieSVG(s.dice[1], true)}<span class="dice-sum" ${last ? `style="color:${COLOR_HEX[s.players[last.p].color]}"` : ''}>${s.dice[0] + s.dice[1]}</span>`);
+    setHTML($('#hudDice'), `${dieSVG(s.dice[0])}${dieSVG(s.dice[1], true)}<span class="dice-sum" ${last ? `style="color:${COLOR_HEX[s.players[last.p].color]}"` : ''}>${s.dice[0] + s.dice[1]}</span>${s.settings.dice === 'balanced' ? `<span class="dice-mode" title="${esc(DICE_HELP)}">balanced</span>` : ''}`);
     $('#hudDice').hidden = false;
   } else $('#hudDice').hidden = true;
   // bank
   setHTML($('#hudBank'), Engine.RES.map(r => `<span class="bk" title="${RES_NAME[r]} in the bank">${ri(r)}${s.bank[r]}</span>`).join('') + `<span class="bk" title="Development cards left">${ic('card', 'ri')}${s.deck.length}</span>`);
   renderPreview();
+  const fab = $('#emoteFab'); if (fab) fab.hidden = !Emotes.canEmote(d);
   renderBanner(d, s, me);
   renderFloatTrade(d, s, me);
   renderDock(d, s, me);
@@ -918,6 +924,12 @@ function trTarget(text) {
   return 'en';
 }
 function chatLine(d, c, i) {
+  if (c.q) { // a quick phrase: shown in this reader's language
+    const s = d.game;
+    const nm = c.p != null && s && s.players[c.p] ? pName(s, c.p) : uidName(d, c.uid);
+    const col = c.p != null && s && s.players[c.p] ? COLOR_HEX[s.players[c.p].color] : uidColor(d, c.uid);
+    return `<div class="chat-e"><div class="chat-row"><span class="chat-body"><span class="pn" style="color:${col}">${esc(nm)}</span> <span class="qc" dir="auto">${Emotes.phraseHTML(c.q, c.r)}</span></span></div></div>`;
+  }
   const mine = c.uid === myUid();
   const tr = app.tr.get(c.uid + ':' + c.at);
   let out = '';
@@ -1231,6 +1243,7 @@ function closeModal() {
   render();
 }
 function leaveRoom() {
+  Emotes.close();
   closeSession();
   app.view = 'home';
   setHash('');
@@ -1257,10 +1270,11 @@ function handleAct(act, ds, el) {
     case 'pbots': app.ui.practice.bots = +ds.n; return renderPractice();
     case 'pmap': app.ui.practice.map = ds.v; return renderPractice();
     case 'playout': app.ui.practice.layout = ds.v; return renderPractice();
+    case 'pdice': app.ui.practice.dice = ds.v; return renderPractice();
     case 'pvp': app.ui.practice.vp = Math.max(5, Math.min(20, app.ui.practice.vp + +ds.d)); return renderPractice();
     case 'practice': {
       const p = app.ui.practice;
-      app.ui.lastPractice = { bots: p.bots, level: p.level || 'normal', settings: { vpToWin: p.vp, layout: p.layout, friendlyRobber: p.friendly, map: p.map || 'standard', maxPlayers: p.bots + 1 } };
+      app.ui.lastPractice = { bots: p.bots, level: p.level || 'normal', settings: { vpToWin: p.vp, layout: p.layout, dice: p.dice || 'random', friendlyRobber: p.friendly, map: p.map || 'standard', maxPlayers: p.bots + 1 } };
       return startPractice(app.ui.lastPractice);
     }
     case 'home':
@@ -1354,6 +1368,9 @@ function handleAct(act, ds, el) {
     case 'cancel-offer': return send({ t: 'cancel' });
     case 'tab': app.ui.tab = ds.tab; return render();
     case 'translate': return d ? translateChat(d, +ds.k) : undefined;
+    case 'emotes': return Emotes.toggle(el);
+    case 'emote': return Emotes.sendEmote({ e: ds.e });
+    case 'qchat': return Emotes.sendEmote(ds.r ? { q: ds.q, r: ds.r } : { q: ds.q });
     case 'botlvl': return send({ t: 'botLevel', i: +ds.i, level: ds.l });
     case 'plevel': app.ui.practice.level = ds.v; return renderPractice();
     case 'close': return closeModal();
@@ -1381,6 +1398,7 @@ function bindEvents() {
   for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) document.addEventListener(ev, wake, true);
   document.addEventListener('click', e => {
     if (app.ui.held && e.target.closest('[data-prev]')) { app.ui.held = 0; return; } // that was a press-and-hold, not a tap
+    if (app.ui.emotesOpen && !e.target.closest('#emotePop') && !e.target.closest('[data-act=emotes]')) Emotes.close();
     const t = e.target.closest('[data-act]');
     if (t) {
       if (t.disabled) return;
@@ -1434,6 +1452,7 @@ function bindEvents() {
       return;
     }
     if (e.key !== 'Escape') return;
+    if (app.ui.emotesOpen) { Emotes.close(); return; }
     if (app.ui.modal) { closeModal(); return; }
     if (dismissEnd()) return;
     if (app.ui.mode || app.ui.costs) { app.ui.mode = null; app.ui.costs = false; render(); }
@@ -1450,6 +1469,8 @@ function bindEvents() {
 
 /* ---------- start ---------- */
 function boot() {
+  // installed on a phone or computer: lets the app open (and practice work) without a connection
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') { try { navigator.serviceWorker.register('/sw.js').catch(() => { }); } catch (e) { } }
   mount();
   bindEvents();
   connect();

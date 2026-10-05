@@ -385,9 +385,15 @@ const Engine = (() => {
   function mapInfo(id) { const d = hasMap(id) ? MAPS[id] : MAPS.standard; return { id: hasMap(id) ? id : 'standard', name: d.name, blurb: d.blurb, min: d.min, max: d.max }; }
 
   /* ---------------- game creation ---------------- */
-  const DEFAULT_SETTINGS = { vpToWin: 10, discardLimit: 7, friendlyRobber: false, timer: 0, map: 'standard', layout: 'random', maxPlayers: 4 };
+  const DEFAULT_SETTINGS = { vpToWin: 10, discardLimit: 7, friendlyRobber: false, timer: 0, map: 'standard', layout: 'random', maxPlayers: 4, dice: 'random' };
+  /* Balanced dice: rolls are drawn from a shuffled deck holding each of the 36 dice results once, so over
+     a game every number comes up about as often as the odds say. The deck is reshuffled when 4 cards are
+     left, so the last few rolls can't be counted out. */
+  const BALANCED_RESHUFFLE_AT = 4;
+  function diceDeck(rng) { const d = []; for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) d.push(a * 10 + b); return shuffle(d, rng); }
   function newGame(cfg, rng) {
     const st = Object.assign({}, DEFAULT_SETTINGS, cfg.settings || {});
+    st.dice = st.dice === 'balanced' ? 'balanced' : 'random';
     const def = hasMap(st.map) ? MAPS[st.map] : MAPS.standard;
     const big = !!def.big || cfg.players.length >= 5;
     const board = genBoard({ map: st.map, layout: st.layout, players: cfg.players.length }, rng);
@@ -723,7 +729,11 @@ const Engine = (() => {
       }
       case 'roll': {
         need(s.phase === 'roll' && isCur, 'You can\'t roll now.');
-        const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
+        let d1, d2;
+        if (s.settings.dice === 'balanced') {
+          if (!Array.isArray(s.diceDeck) || s.diceDeck.length <= BALANCED_RESHUFFLE_AT) s.diceDeck = diceDeck(rng);
+          const c = s.diceDeck.pop(); d1 = Math.floor(c / 10); d2 = c % 10;
+        } else { d1 = 1 + Math.floor(rng() * 6); d2 = 1 + Math.floor(rng() * 6); }
         const sum = d1 + d2;
         s.dice = [d1, d2]; s.stats.rolls[sum]++;
         s.rollId = (s.rollId || 0) + 1;
@@ -960,6 +970,7 @@ const Engine = (() => {
       res: emptyRes(), nCards: total(p.res), dev: p.dev.map(() => 'hidden'), newDev: {},
     }));
     g.deck = s.deck.map(() => 0);
+    if (Array.isArray(s.diceDeck)) g.diceDeck = s.diceDeck.map(() => 0); // how many rolls are left, not which
     g.log = s.log.map(e => {
       if (e.k === 'steal' && e.p !== me && e.q !== me) return Object.assign({}, e, { r: null });
       if (e.k === 'buyDev' && e.p !== me) return Object.assign({}, e, { card: null });
