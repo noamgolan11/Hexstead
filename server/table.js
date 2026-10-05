@@ -8,7 +8,10 @@ const BOT_NAMES = ['Ada', 'Bram', 'Cleo', 'Dov', 'Esme', 'Finn', 'Gus', 'Hana'];
 
 function rng() { return crypto.randomInt(0, 2 ** 32) / 2 ** 32; }
 function clampInt(v, lo, hi, d) { v = Number(v); if (!Number.isFinite(v)) return d; return Math.max(lo, Math.min(hi, Math.round(v))); }
+const isIndex = (x, n) => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < n;
 function ruleError(m) { const e = new Error(m); e.rule = true; return e; }
+// moves to try when a bot's own choice is refused, so a seat can never get stuck
+const FALLBACKS = [{ t: 'cancel' }, { t: 'roll' }, { t: 'skipRoads' }, { t: 'pass' }, { t: 'end' }];
 const cleanNick = n => String(n || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 18);
 
 class Table {
@@ -28,6 +31,12 @@ class Table {
   static restore(doc, hooks) {
     const t = new Table(doc.code, doc.owner, hooks);
     t.doc = doc;
+    const s = doc.game;
+    if (s) {
+      // the server was down for a while: don't count that against whoever's turn it was
+      if (s.deadline && doc.savedAt) s.deadline += Math.max(0, Date.now() - doc.savedAt);
+      t.deadlineKey = t.deadlineKeyFor(s);
+    }
     return t;
   }
 
@@ -51,6 +60,8 @@ class Table {
       case 'chat': {
         const text = String(a.text || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200);
         if (!text) fail('Empty message.');
+        const now = Date.now(), recent = d.chat.filter(c => c.uid === uid && now - c.at < 10000).length;
+        if (recent >= 6) fail('Slow down a little.');
         d.chat.push({ uid, text, at: Date.now() });
         if (d.chat.length > 80) d.chat.splice(0, d.chat.length - 80);
         return;
@@ -97,7 +108,7 @@ class Table {
       case 'botLevel': {
         if (!this.canManage(uid)) fail('Only the host can change bots.');
         if (d.status !== 'lobby') fail('The game has started.');
-        const seat = d.seats[a.i | 0];
+        const seat = isIndex(a.i, d.seats.length) ? d.seats[a.i] : null;
         if (!seat || !seat.bot) fail('That seat isn\'t a bot.');
         if (!Bot.LEVELS.includes(a.level)) fail('Unknown difficulty.');
         seat.level = a.level;
@@ -106,26 +117,29 @@ class Table {
       case 'kick': {
         if (!this.canManage(uid)) fail('Only the host can remove players.');
         if (d.status !== 'lobby') fail('The game has started.');
-        const i = a.i | 0;
-        if (!d.seats[i] || d.seats[i].uid === d.owner) fail('You can\'t remove that seat.');
+        const i = a.i;
+        if (!isIndex(i, d.seats.length) || d.seats[i].uid === d.owner) fail('You can\'t remove that seat.');
         d.seats.splice(i, 1);
         return;
       }
       case 'settings': {
         if (!this.canManage(uid)) fail('Only the host can change settings.');
         if (d.status !== 'lobby') fail('The game has started.');
-        const x = a.settings || {}, st = d.settings;
-        st.vpToWin = clampInt(x.vpToWin ?? st.vpToWin, 5, 20, 10);
-        st.discardLimit = clampInt(x.discardLimit ?? st.discardLimit, 5, 15, 7);
-        st.friendlyRobber = !!(x.friendlyRobber ?? st.friendlyRobber);
-        const tm = Number(x.timer ?? st.timer);
-        st.timer = [0, 60, 90, 120, 180, 300].includes(tm) ? tm : 0;
-        st.layout = (x.layout ?? st.layout) === 'balanced' ? 'balanced' : 'random';
-        const map = Engine.MAPS[x.map] ? x.map : (Engine.MAPS[st.map] ? st.map : 'standard');
+        const x = a.settings && typeof a.settings === 'object' ? a.settings : {}, st = d.settings;
+        // check everything first, then change it all at once, so a refused change leaves nothing half-applied
+        const map = Engine.hasMap(x.map) ? x.map : (Engine.hasMap(st.map) ? st.map : 'standard');
         const cap = Engine.MAPS[map].max;
         if (d.seats.length > cap) fail(Engine.MAPS[map].name + ' is for up to ' + cap + ' players. Remove a seat first.');
-        st.map = map;
-        st.maxPlayers = clampInt(x.maxPlayers ?? st.maxPlayers, Math.max(2, d.seats.length), cap, Math.min(4, cap));
+        const tm = Number(x.timer ?? st.timer);
+        Object.assign(st, {
+          vpToWin: clampInt(x.vpToWin ?? st.vpToWin, 5, 20, 10),
+          discardLimit: clampInt(x.discardLimit ?? st.discardLimit, 5, 15, 7),
+          friendlyRobber: !!(x.friendlyRobber ?? st.friendlyRobber),
+          timer: [0, 60, 90, 120, 180, 300].includes(tm) ? tm : 0,
+          layout: (x.layout ?? st.layout) === 'balanced' ? 'balanced' : 'random',
+          map,
+          maxPlayers: clampInt(x.maxPlayers ?? st.maxPlayers, Math.max(2, d.seats.length), cap, Math.min(4, cap)),
+        });
         return;
       }
       case 'start': {
@@ -147,8 +161,8 @@ class Table {
       case 'autoplay': {
         // a bot plays for a seat: the player themselves, or the host for someone who isn't here
         if (d.status !== 'playing') fail('The game isn\'t running.');
-        const i = a.i | 0;
-        const p = d.game.players[i];
+        const i = a.i;
+        const p = isIndex(i, d.game.players.length) ? d.game.players[i] : null;
         if (!p || p.bot) fail('No such player.');
         const self = p.uid === uid;
         if (!self && !(this.canManage(uid) && !this.online().has(p.uid))) fail('You can only do that for players who are away.');
@@ -175,8 +189,9 @@ class Table {
       this.changed();
       return { ok: true };
     } catch (e) {
-      if (typeof s === 'number') d.applied[uid] = s;
-      if (!e.rule) console.error('action error', a, e);
+      // remember the number for people at the table (so a resend isn't applied twice), not for every passer-by
+      if (typeof s === 'number' && d.seats.some(x => !x.bot && x.uid === uid)) d.applied[uid] = s;
+      if (!e.rule) console.error('action error', a && a.t, e.message);
       return { ok: false, err: e.rule ? e.message : 'That move wasn\'t accepted.' };
     }
   }
@@ -194,11 +209,15 @@ class Table {
 
   /* ---- timers ---- */
   isBotSeat(s, i) { const p = s.players[i]; return p.bot || p.auto; }
+  // a new turn, step or roll gets a fresh clock; so does a seat switching between a person and a bot
+  deadlineKeyFor(s) {
+    return [s.phase, s.cur, s.turn, s.setup ? s.setup.i + s.setup.step : '', s.rollId || 0, s.special ? s.special.q.length : '', s.players.map(p => (p.auto ? 1 : 0)).join('')].join('|');
+  }
   updateDeadline() {
     const d = this.doc, s = d.game;
     if (!s) return;
     if (!d.settings.timer || s.phase === 'ended') { s.deadline = 0; return; }
-    const key = [s.phase, s.cur, s.turn, s.setup ? s.setup.i + s.setup.step : '', s.rollId || 0, s.special ? s.special.q.length : ''].join('|');
+    const key = this.deadlineKeyFor(s);
     if (key !== this.deadlineKey) {
       this.deadlineKey = key;
       const humans = Engine.pendingActors(s).some(p => !this.isBotSeat(s, p));
@@ -208,20 +227,25 @@ class Table {
   tick() {
     const d = this.doc, s = d.game;
     if (!s || d.status !== 'playing' || !s.deadline || Date.now() < s.deadline + 400) return;
+    // time's up: play out what every late person still owes (their turn, a discard...) so the game moves on
+    const late = new Set(Engine.pendingActors(s).filter(p => !this.isBotSeat(s, p)));
+    const turn = s.turn, setupI = s.setup ? s.setup.i : -1, logged = new Set();
     let changed = false;
-    for (let n = 0; n < 6; n++) {
+    for (let n = 0; n < 40; n++) {
       const st = d.game;
-      if (!st.deadline || Date.now() < st.deadline + 400 || st.phase === 'ended') break;
-      const humans = Engine.pendingActors(st).filter(p => !this.isBotSeat(st, p));
-      if (!humans.length) break;
-      const p = humans[0];
-      const a = Bot.decide(Engine.redact(st, p), p, rng, { autopilot: true });
-      if (!a) break;
-      try { d.game = Engine.apply(st, p, a, rng); changed = true; } catch (e) { console.error('autopilot', e); break; }
-      if (n === 0) Engine.addLog(d.game, { k: 'timeout', p });
-      if (a.t !== 'cancel') break;
+      if (st.phase === 'ended' || st.turn !== turn || (st.setup ? st.setup.i : -1) !== setupI && setupI >= 0) break; // only what was due when time ran out
+      const p = Engine.pendingActors(st).find(q => late.has(q) && !this.isBotSeat(st, q));
+      if (p === undefined) break;
+      let a = null;
+      try { a = Bot.decide(Engine.redact(st, p), p, rng, { autopilot: true }); } catch (e) { console.error('autopilot decide', e.message); }
+      const tries = [a, ...FALLBACKS].filter(Boolean);
+      let ok = false;
+      for (const t of tries) { try { d.game = Engine.apply(st, p, t, rng); ok = true; break; } catch (e) { } }
+      if (!ok) { console.error('autopilot stuck', st.phase); break; }
+      if (!logged.has(p)) { logged.add(p); Engine.addLog(d.game, { k: 'timeout', p }); }
+      changed = true;
     }
-    if (changed) { this.deadlineKey = ''; this.changed(); }
+    if (changed) this.changed();
   }
 
   /* ---- bots ---- */
@@ -233,16 +257,27 @@ class Table {
     return out;
   }
   scheduleBots() {
-    clearTimeout(this.botTimer);
     const d = this.doc;
-    if (d.status !== 'playing' || !d.game) return;
+    const stopTimer = () => { clearTimeout(this.botTimer); this.botTimer = null; this.botDue = 0; };
+    if (d.status !== 'playing' || !d.game) return stopTimer();
     const s = d.game;
-    if (!this.botActors(s).length) return;
+    if (!this.botActors(s).length) return stopTimer();
     const nobodyWatching = this.subs.size === 0;
+    const allBots = s.players.every((p, i) => this.isBotSeat(s, i));
+    if (nobodyWatching && allBots) return stopTimer(); // nobody to play for: wait until someone opens the table
     let delay = s.phase === 'setup' ? 850 : s.phase === 'roll' ? 750 : s.trade ? 1100 : 650;
     if (s.trade && s.trade.drafting && Object.keys(s.trade.drafting).some(i => this.isBotSeat(s, +i))) delay = 1900; // a bot "thinking" about a counter
-    if (nobodyWatching || s.players.every((p, i) => this.isBotSeat(s, i))) delay = 300;
-    this.botTimer = setTimeout(() => this.runBot(), delay);
+    if (nobodyWatching || allBots) delay = 300;
+    const due = Date.now() + delay;
+    if (this.botTimer && this.botDue && this.botDue <= due) return; // a bot move is already coming; chat or visitors must not push it back
+    clearTimeout(this.botTimer);
+    this.botDue = due;
+    this.botTimer = setTimeout(() => { this.botTimer = null; this.botDue = 0; this.runBot(); }, delay);
+  }
+  later(ms) {
+    clearTimeout(this.botTimer);
+    this.botDue = Date.now() + ms;
+    this.botTimer = setTimeout(() => { this.botTimer = null; this.botDue = 0; this.runBot(); }, ms);
   }
   runBot() {
     const d = this.doc, s = d.game;
@@ -253,26 +288,36 @@ class Table {
     const tradeAge = s.trade ? Date.now() - this.tradeSeen.at : 0;
     for (const p of actors) {
       const view = Engine.redact(s, p); // bots only see what a person in their seat would
-      const a = Bot.decide(view, p, rng, { tradeAge });
-      if (!a) continue; // e.g. a bot waiting for answers to its offer
-      try { d.game = Engine.apply(s, p, a, rng); }
-      catch (e) {
-        const b = Bot.decide(view, p, rng, { autopilot: true });
-        try { d.game = Engine.apply(s, p, b, rng); } catch (e2) { console.error('bot stuck', a, b, e2.message); return; }
-      }
+      let a = null;
+      try { a = Bot.decide(view, p, rng, { tradeAge }); } catch (e) { console.error('bot decide', e.message); a = undefined; }
+      if (a === null) continue; // a bot waiting for answers to its offer
+      let auto = null;
+      try { auto = Bot.decide(view, p, rng, { autopilot: true }); } catch (e) { }
+      const tries = [a, auto, ...FALLBACKS].filter(Boolean);
+      let ok = false;
+      for (const t of tries) { try { d.game = Engine.apply(s, p, t, rng); ok = true; break; } catch (e) { } }
+      if (!ok) { console.error('bot stuck', s.phase, a && a.t); continue; }
       this.changed();
       return;
     }
     // everyone is waiting on people; look again soon so an unanswered offer doesn't hang
-    clearTimeout(this.botTimer);
-    this.botTimer = setTimeout(() => this.runBot(), 1500);
+    this.later(1500);
   }
-  stop() { clearTimeout(this.botTimer); }
+  stop() { clearTimeout(this.botTimer); this.botTimer = null; this.botDue = 0; }
+
+  /* someone closed the page: they can't still be writing a counter-offer */
+  userLeft(uid) {
+    const s = this.doc.game;
+    if (!s || !s.trade || !s.trade.drafting || this.online().has(uid)) return;
+    const i = s.players.findIndex(p => !p.bot && p.uid === uid);
+    if (i >= 0 && s.trade.drafting[i]) { delete s.trade.drafting[i]; this.changed(); }
+  }
 
   /* ---- what one viewer may see ---- */
   viewFor(uid) {
     const d = this.doc;
-    const out = Object.assign({}, d, { online: [...this.online()] });
+    const out = Object.assign({}, d, { online: [...this.online()], applied: uid && d.applied[uid] ? { [uid]: d.applied[uid] } : {} });
+    delete out.savedAt;
     if (!d.game) return out;
     const s = d.game;
     if (s.phase === 'ended') return out;

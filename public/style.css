@@ -90,6 +90,7 @@ input, select { font: inherit; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field label, .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; }
+.field label.switch { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--muted); font-weight: 500; }
 .input { height: 38px; border-radius: 8px; border: 1px solid var(--line); background: var(--sea-deep); color: var(--ink); padding: 0 12px; min-width: 0; }
 .input.code { text-transform: uppercase; letter-spacing: .25em; font-weight: 700; width: 9.5em; }
 .status-line { font-size: 14px; color: var(--muted); margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -183,7 +184,8 @@ aside.side { border-left: 1px solid var(--line); background: var(--panel); displ
 .port-txt { font-family: var(--font-ui); font-weight: 800; font-size: 13px; text-anchor: middle; fill: #2a2117; }
 
 /* ---------- floating trade card ---------- */
-.float-trade { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; width: min(580px, calc(100% - 24px)); background: rgba(13, 31, 47, .97); border: 1px solid var(--brass-deep); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); animation: ftin .22s ease; }
+.float-trade { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; width: min(580px, calc(100% - 24px)); background: rgba(13, 31, 47, .97); border: 1px solid var(--brass-deep); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); box-sizing: border-box; }
+.float-trade.enter { animation: ftin .22s ease; }
 @keyframes ftin { from { opacity: 0; transform: translate(-50%, 8px) } to { opacity: 1; transform: translate(-50%, 0) } }
 .float-trade.incoming { border-color: var(--brass); box-shadow: 0 0 0 1px rgba(230, 176, 90, .35), var(--shadow); }
 .ft-top { display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; }
@@ -356,7 +358,11 @@ aside.side { border-left: 1px solid var(--line); background: var(--panel); displ
 
 /* ---------- modal ---------- */
 .modal-back { position: fixed; inset: 0; background: rgba(4, 10, 16, .66); z-index: 50; display: grid; place-items: center; padding: 16px; }
-.modal { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; box-shadow: var(--shadow); }
+.modal { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; width: min(520px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto; box-shadow: var(--shadow); box-sizing: border-box; }
+.modal-back, .banner, .peek-note, .toast, .costs-pop { box-sizing: border-box; }
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.end-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; width: 100%; font-size: 15px; }
+.end-bar .spacer { flex: 1; }
 .modal.wide { width: min(760px, 100%); }
 .modal h2 { font-family: var(--font-display); font-weight: 400; margin: 0 0 4px; font-size: 28px; color: var(--parch); }
 .modal .sub { color: var(--muted); margin: 0 0 14px; }
@@ -368,6 +374,8 @@ aside.side { border-left: 1px solid var(--line); background: var(--panel); displ
 .pick .stepper button { width: 26px; height: 28px; font-size: 16px; }
 .pick .stepper output { min-width: 22px; }
 .pick.sel { border-color: var(--brass); background: rgba(230, 176, 90, .1); }
+.pick-add { border: 0; padding: 0; cursor: pointer; }
+.pick-add[aria-disabled="true"] { cursor: default; filter: saturate(.6); }
 .pick button.whole { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; }
 .trade-row { margin: 10px 0; }
 .trade-row .lbl { margin-bottom: 6px; display: block; }
@@ -478,8 +486,72 @@ aside.side { border-left: 1px solid var(--line); background: var(--panel); displ
   .ft-deal { margin-left: 0; }
   .float-trade { padding: 10px 12px; }
   .peek-note { left: 8px; right: 8px; bottom: 8px; max-width: none; justify-content: center; font-size: 12px; }
-  .act .left { top: 3px; right: 3px; min-width: 17px; height: 17px; font-size: 10px; padding: 0 4px; }
+  .act .left { top: 1px; right: 1px; min-width: 15px; height: 15px; font-size: 9.5px; padding: 0 3px; border-radius: 8px; }
+  .act { font-size: 11px; letter-spacing: 0; }
+  .float-trade { max-height: 52%; overflow-y: auto; }
+  .resp { min-height: 30px; }
+  .pick .stepper button { width: 20px; }
+  .pick .stepper output { min-width: 16px; }
+  .costs-pop { left: 10px; right: 10px; }
+  .score-table { font-size: 13px; }
+  .score-table th, .score-table td { padding: 6px 5px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* ---------- event effects (fx.js) ---------- */
+#fx { position: fixed; inset: 0; pointer-events: none; z-index: 45; overflow: hidden; }
+.fx-fly { position: fixed; margin: -17px 0 0 -13px; will-change: transform; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .45)); }
+.fx-fly.small { margin: -13px 0 0 -10px; }
+.fx-fly.small .tcard, .fx-fly.small .fx-back { width: 20px; height: 26px; }
+.fx-fly.small .tcard svg, .fx-fly.small .fx-back svg { width: 14px; height: 14px; }
+.fx-back { width: 26px; height: 34px; border-radius: 5px; display: grid; place-items: center; background: linear-gradient(170deg, #2a5274, #172f45); box-shadow: inset 0 0 0 1.5px var(--brass-deep); color: var(--parch); }
+.fx-back svg { width: 16px; height: 16px; }
+.fx-float { position: fixed; transform: translate(-50%, -50%); font-weight: 800; font-size: 16px; white-space: nowrap; text-shadow: 0 2px 4px rgba(0, 0, 0, .7); }
+.fx-float.up { color: #8fe3aa; }
+.fx-float.down { color: #ff9d90; }
+.fx-tag { position: fixed; transform: translate(-50%, -150%); padding: 3px 10px; border-radius: 99px; border: 2px solid; background: rgba(8, 21, 31, .94); color: var(--ink); font-size: 13px; font-weight: 600; white-space: nowrap; box-shadow: var(--shadow); display: inline-flex; gap: 5px; align-items: center; }
+.fx-tag svg { width: 15px; height: 15px; }
+.fx-ring { fill: none; stroke-width: 7; transform-box: fill-box; transform-origin: center; animation: fxring 1.25s ease-out both; pointer-events: none; }
+@keyframes fxring { from { transform: scale(.35); opacity: 1 } to { transform: scale(2.3); opacity: 0 } }
+.fx-dice { position: absolute; left: 50%; top: 46%; z-index: 6; transform: translate(-50%, -50%) scale(.85); opacity: 0; pointer-events: none; background: rgba(8, 21, 31, .86); border: 1px solid var(--line); border-radius: 18px; padding: 14px 22px 12px; text-align: center; transition: opacity .25s, transform .25s; box-shadow: var(--shadow); min-width: 190px; }
+.fx-dice.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.fx-dice-row { display: flex; gap: 14px; justify-content: center; }
+.fx-die { display: inline-block; }
+.fx-die .die { width: 62px; height: 62px; }
+.fx-dice.spinning .fx-die { animation: fxtumble .3s linear infinite; }
+.fx-dice.spinning .fx-die:nth-child(2) { animation-direction: reverse; }
+.fx-dice.landed .fx-die { animation: fxland .4s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes fxtumble { 0% { transform: rotate(0) translateY(0) } 50% { transform: rotate(180deg) translateY(-8px) } 100% { transform: rotate(360deg) translateY(0) } }
+@keyframes fxland { from { transform: scale(1.35) } to { transform: scale(1) } }
+.fx-dice-sum { font-size: 46px; font-weight: 800; color: var(--parch); line-height: 1; margin-top: 8px; animation: fxland .4s cubic-bezier(.2, 1.6, .4, 1); }
+.fx-dice-sum.seven { color: var(--danger); }
+.fx-dice-who { display: flex; gap: 8px; align-items: center; justify-content: center; font-weight: 700; margin-top: 6px; font-size: 15px; white-space: nowrap; }
+.fx-dice-who .who { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(0, 0, 0, .4); }
+.ticker { position: absolute; left: 12px; top: 76px; z-index: 4; display: flex; flex-direction: column; gap: 4px; max-width: min(360px, 46%); pointer-events: none; }
+.tk { background: rgba(8, 21, 31, .86); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 8px; padding: 4px 9px; font-size: 13px; font-weight: 600; display: flex; gap: 5px; align-items: center; flex-wrap: wrap; animation: fxtk .25s ease; transition: opacity .4s, transform .4s; color: #d9e3ea; }
+.tk.out { opacity: 0; transform: translateX(-10px); }
+@keyframes fxtk { from { opacity: 0; transform: translateX(-10px) } to { opacity: 1; transform: none } }
+.tk .mini-die { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 4px; background: var(--parch); color: #2a2117; font-weight: 800; font-size: 11px; }
+.tk .tcard { width: 18px; height: 24px; border-radius: 4px; }
+.tk .tcard svg { width: 13px; height: 13px; }
+.tk .tcard b { min-width: 14px; height: 14px; font-size: 9.5px; right: -5px; bottom: -5px; }
+.tk .tcards { gap: 5px; }
+.tk .ft-swap svg { width: 14px; height: 14px; }
+.tk .note { font-size: 11px; }
+@media (max-width: 760px) {
+  /* phones: a one-line strip under the board shows the latest action, so nothing covers the island */
+  .board-wrap { height: calc(100vw * .94 + 122px); }
+  #board { height: calc(100% - 122px); }
+  .ticker { top: auto; bottom: 0; left: 0; right: 0; max-width: none; gap: 0; }
+  .ticker .tk:not(:last-child) { display: none; }
+  .tk { font-size: 12px; padding: 0 10px; height: 30px; border-radius: 0; border: 0; border-top: 1px solid var(--line); border-left: 4px solid var(--line); background: var(--panel); flex-wrap: nowrap; white-space: nowrap; overflow: hidden; }
+  .tk.out { opacity: 1; transform: none; }
+  .peek-note { bottom: 38px; }
+  .float-trade { bottom: 38px; }
+  .fx-die .die { width: 48px; height: 48px; }
+  .fx-dice { padding: 10px 16px; min-width: 150px; }
+  .fx-dice-sum { font-size: 36px; }
+}
+@media (min-width: 1181px) { .ticker { top: 76px; } }

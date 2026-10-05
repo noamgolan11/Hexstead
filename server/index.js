@@ -25,6 +25,7 @@ const FILES = {
   '/net.js': ['public/net.js', JS],
   '/audio.js': ['public/audio.js', JS],
   '/ui-board.js': ['public/ui-board.js', JS],
+  '/fx.js': ['public/fx.js', JS],
   '/ui.js': ['public/ui.js', JS],
 };
 const cache = new Map();
@@ -56,6 +57,7 @@ const server = http.createServer((req, res) => {
 
 /* ---------------- tables ---------------- */
 const tables = new Map();
+const createdBy = new Map(); // network address -> times tables were opened, to stop one visitor filling the server
 let dirty = false;
 const sockets = new Set();
 
@@ -89,9 +91,11 @@ function newCode() {
 }
 function subscribe(ws, t) {
   if (ws.table && ws.table !== t) unsubscribe(ws);
+  const wasHere = t.online().has(ws.uid);
   ws.table = t;
   t.subs.add(ws);
-  hooks.broadcast(t);
+  if (wasHere) send(ws, { t: 'state', doc: t.viewFor(ws.uid), now: Date.now() }); // reopening: only they need the state
+  else hooks.broadcast(t); // someone new: everyone's "online" dots change
   t.scheduleBots();
 }
 function unsubscribe(ws) {
@@ -99,16 +103,28 @@ function unsubscribe(ws) {
   if (!t) return;
   t.subs.delete(ws);
   ws.table = null;
-  hooks.broadcast(t);
+  if (!t.online().has(ws.uid)) { hooks.broadcast(t); t.userLeft(ws.uid); }
 }
 /* ---------------- chat translation (fallback when the browser can't reach the service itself) ---------------- */
 const TR_URL = process.env.TRANSLATE_URL || 'https://api.mymemory.translated.net/get';
 const trCache = new Map();
+const trUse = new Map(); // uid -> recent request times
+let trInFlight = 0, trWindow = [];
+function trAllowed(uid) {
+  const now = Date.now();
+  trWindow = trWindow.filter(x => now - x < 10 * 60e3);
+  if (trWindow.length >= 400 || trInFlight >= 8) return false; // the whole server's share of the free service
+  const mine = (trUse.get(uid) || []).filter(x => now - x < 60e3);
+  if (mine.length >= 15) return false;
+  mine.push(now); trUse.set(uid, mine); trWindow.push(now);
+  if (trUse.size > 5000) trUse.clear();
+  return true;
+}
 const decodeEntities = t => String(t).replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-async function translate(text, to) {
-  const key = to + '|' + text;
+async function translate(text, to, from) {
+  const key = (from || '') + '>' + to + '|' + text;
   if (trCache.has(key)) return trCache.get(key);
-  let url = TR_URL + '?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent('autodetect|' + to);
+  let url = TR_URL + '?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent((from || 'autodetect') + '|' + to);
   if (process.env.MYMEMORY_EMAIL) url += '&de=' + encodeURIComponent(process.env.MYMEMORY_EMAIL);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
@@ -118,8 +134,9 @@ async function translate(text, to) {
   const status = Number(j && j.responseStatus);
   let out;
   if (status === 403 && /DISTINCT LANGUAGES/i.test(String(j.responseDetails || d.translatedText))) out = { same: true };
-  else if (status !== 200 || !d.translatedText || /^MYMEMORY WARNING/i.test(d.translatedText)) out = { err: /QUOTA|ALL AVAILABLE FREE/i.test(String(d.translatedText) + j.responseDetails) ? 'quota' : 'failed' };
-  else out = { text: decodeEntities(d.translatedText).slice(0, 400), from: String(d.detectedLanguage || '').slice(0, 12) };
+  else if ((j && j.quotaFinished === true) || status !== 200 || !d.translatedText || /^MYMEMORY WARNING/i.test(d.translatedText)) out = { err: (j && j.quotaFinished === true) || /QUOTA|ALL AVAILABLE FREE/i.test(String(d.translatedText) + j.responseDetails) ? 'quota' : 'failed' };
+  else if (decodeEntities(d.translatedText).trim().toLowerCase() === text.trim().toLowerCase()) out = { same: true };
+  else out = { text: decodeEntities(d.translatedText).slice(0, 400), from: String(d.detectedLanguage || from || '').slice(0, 12) };
   if (!out.err) { trCache.set(key, out); if (trCache.size > 2000) trCache.delete(trCache.keys().next().value); }
   return out;
 }
@@ -133,6 +150,7 @@ function handle(ws, m) {
   switch (m.t) {
     case 'hello': {
       if (typeof m.token !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(m.token)) return send(ws, { t: 'error', m: 'Bad session token.' });
+      if (ws.uid && ws.uid !== uidOf(m.token)) return send(ws, { t: 'error', m: 'This connection already has a player.' });
       ws.uid = uidOf(m.token);
       send(ws, { t: 'welcome', uid: ws.uid });
       if (ws.lobby) sendTables(ws);
@@ -142,6 +160,11 @@ function handle(ws, m) {
     case 'lobby': ws.lobby = !!m.on; if (ws.lobby) sendTables(ws); return;
     case 'create': {
       if (tables.size >= MAX_TABLES) return send(ws, { t: 'error', m: 'The server is full right now. Try again later.' });
+      const ipNow = Date.now();
+      const made = (createdBy.get(ws.ip) || []).filter(x => ipNow - x < 3600e3);
+      if (made.length >= 40) return send(ws, { t: 'error', m: 'Too many new tables from your connection. Try again in a while.' });
+      made.push(ipNow); createdBy.set(ws.ip, made);
+      if (createdBy.size > 20000) createdBy.clear();
       let owned = 0;
       for (const t of tables.values()) if (t.doc.owner === ws.uid && t.doc.status !== 'ended') owned++;
       if (owned >= MAX_OWNED) return send(ws, { t: 'error', m: 'You have too many open tables. Delete some first.' });
@@ -166,10 +189,13 @@ function handle(ws, m) {
       const id = String(m.id || '').slice(0, 40);
       const text = String(m.text || '').trim().slice(0, 200);
       const to = /^[a-z]{2}(-[A-Za-z]{2})?$/.test(m.to) ? m.to : 'en';
+      const from = /^[a-z]{2,3}$/.test(m.from) ? m.from : '';
       if (!text) return send(ws, { t: 'translated', id, err: 'failed' });
-      ws.trUsed = (ws.trUsed || 0) + 1;
-      if (ws.trUsed > 120) return send(ws, { t: 'translated', id, err: 'quota' });
-      translate(text, to).then(r => send(ws, Object.assign({ t: 'translated', id }, r)), () => send(ws, { t: 'translated', id, err: 'failed' }));
+      if (!ws.table || !ws.table.doc.chat.some(c => c.text === text)) return send(ws, { t: 'translated', id, err: 'failed' }); // only messages from your table's chat
+      const key = from + '>' + to + '|' + text;
+      if (!trCache.has(key) && !trAllowed(ws.uid)) return send(ws, { t: 'translated', id, err: 'busy' });
+      trInFlight++;
+      translate(text, to, from).then(r => send(ws, Object.assign({ t: 'translated', id }, r)), () => send(ws, { t: 'translated', id, err: 'failed' })).finally(() => { trInFlight--; });
       return;
     }
     case 'act': {
@@ -198,7 +224,9 @@ function handle(ws, m) {
 }
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024 });
-wss.on('connection', ws => {
+wss.on('connection', (ws, req) => {
+  const fwd = String((req && req.headers['x-forwarded-for']) || '').split(',')[0].trim();
+  ws.ip = fwd || (req && req.socket && req.socket.remoteAddress) || '?';
   ws.uid = null; ws.table = null; ws.lobby = false; ws.alive = true;
   ws.bucket = 40; ws.last = Date.now(); ws.warned = false;
   sockets.add(ws);
@@ -207,7 +235,12 @@ wss.on('connection', ws => {
     // token bucket: about 20 messages a second, bursts of 40
     const now = Date.now();
     ws.bucket = Math.min(40, ws.bucket + (now - ws.last) / 50); ws.last = now;
-    if (ws.bucket < 1) { if (!ws.warned) { ws.warned = true; send(ws, { t: 'error', m: 'Slow down a little.' }); } return; }
+    if (ws.bucket < 1) {
+      if (!ws.warned) { ws.warned = true; send(ws, { t: 'error', m: 'Slow down a little.' }); }
+      // a dropped move must be refused out loud, or the page keeps showing it as done
+      try { const m = JSON.parse(raw.toString()); if (m && m.t === 'act' && Number.isFinite(m.s)) send(ws, { t: 'rej', code: String(m.code || ''), s: m.s, m: '' }); } catch (e) { }
+      return;
+    }
     ws.bucket -= 1; ws.warned = false;
     let m;
     try { m = JSON.parse(raw.toString()); } catch (e) { return; }
@@ -236,19 +269,33 @@ function save() {
   try {
     fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
     const tmp = DATA_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify([...tables.values()].map(t => t.doc)));
+    const now = Date.now();
+    fs.writeFileSync(tmp, JSON.stringify([...tables.values()].map(t => Object.assign({}, t.doc, { savedAt: now }))));
     fs.renameSync(tmp, DATA_FILE);
-  } catch (e) { console.error('save failed', e.message); }
+  } catch (e) { dirty = true; console.error('save failed', e.message); } // try again next time
 }
 function load() {
-  try {
-    const docs = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    for (const d of docs) { const t = Table.restore(d, hooks); tables.set(d.code, t); t.scheduleBots(); }
-    console.log('restored', tables.size, 'tables');
-  } catch (e) { /* first start */ }
+  let raw;
+  try { raw = fs.readFileSync(DATA_FILE, 'utf8'); } catch (e) { return; } // first start
+  let docs;
+  try { docs = JSON.parse(raw); if (!Array.isArray(docs)) throw new Error('not a list'); }
+  catch (e) {
+    // keep the damaged file instead of overwriting it with an empty server
+    const bad = DATA_FILE + '.bad-' + Date.now();
+    try { fs.renameSync(DATA_FILE, bad); } catch (e2) { }
+    console.error('could not read saved tables (' + e.message + '); kept it as', bad);
+    return;
+  }
+  for (const d of docs) {
+    try { if (!d || !d.code || tables.has(d.code)) continue; const t = Table.restore(d, hooks); tables.set(d.code, t); t.scheduleBots(); }
+    catch (e) { console.error('skipped a saved table', e.message); }
+  }
+  console.log('restored', tables.size, 'tables');
 }
 setInterval(save, 5000);
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { save(); process.exit(0); });
 
+process.on('uncaughtException', e => { console.error('uncaught', e); });
+process.on('unhandledRejection', e => { console.error('unhandled rejection', e); });
 load();
 server.listen(PORT, () => console.log('Hexstead running on http://localhost:' + PORT));

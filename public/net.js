@@ -2,7 +2,7 @@
    HEXSTEAD CLIENT NET — talks to the game server over a WebSocket.
    The server owns every online table. Practice games run locally.
    ============================================================ */
-const HEXSTEAD_VERSION = '2.0.1';
+const HEXSTEAD_VERSION = '2.1';
 const COLORS = [
   { id: 'red', name: 'Crimson', hex: '#d8463b' },
   { id: 'blue', name: 'Cobalt', hex: '#3b78e0' },
@@ -179,6 +179,7 @@ function onRemoteDoc(g) {
   const d = g.doc;
   const ap = (d.applied || {})[app.me.uid] || 0;
   g.pending = g.pending.filter(i => i.s > ap);
+  g.lastSeq = Math.max(g.lastSeq, ap); // next move numbers stay above what the server has seen, even if this clock is behind
   refreshView(g);
   render();
 }
@@ -234,34 +235,80 @@ function send(a) {
 }
 
 /* ---------------- chat translation ----------------
-   The browser asks the free MyMemory service directly (each person has their own daily allowance);
-   if that fails, the game server asks on its behalf. */
+   Tried in order, so a used-up allowance in one place doesn't stop translation:
+   1. the browser's own built-in translator, when it has one (recent desktop Chrome): free, private, no limits;
+   2. the free MyMemory service, asked directly by this browser (an allowance per internet connection);
+   3. the game server asking MyMemory on the browser's behalf (the server's own allowance). */
 const TRANSLATE_URL = 'https://api.mymemory.translated.net/get';
 const trWaiting = new Map();
-function parseTranslation(j) {
+const trMods = {};
+let trDetector = null;
+// scripts that give the language away (automatic detection mistakes short Hebrew for Yiddish, for example)
+const SCRIPT_LANGS = [[/[֐-׿]/, 'he'], [/[؀-ۿ]/, 'ar'], [/[぀-ヿ]/, 'ja'], [/[가-힯]/, 'ko'], [/[一-鿿]/, 'zh'], [/[฀-๿]/, 'th'], [/[Ͱ-Ͽ]/, 'el']];
+// built-in browser features can stall (some browsers never answer); never wait on them for long
+function soon(promise, ms) { return Promise.race([Promise.resolve(promise).catch(() => null), new Promise(r => setTimeout(() => r(null), ms))]); }
+async function detectLang(text) {
+  for (const [re, l] of SCRIPT_LANGS) if (re.test(text)) return l;
+  try {
+    if (typeof LanguageDetector !== 'undefined' && (await soon(LanguageDetector.availability(), 1500)) === 'available') {
+      trDetector = trDetector || await soon(LanguageDetector.create(), 2000);
+      const r = trDetector && ((await soon(trDetector.detect(text), 1500)) || [])[0];
+      if (r && r.detectedLanguage && r.detectedLanguage !== 'und' && r.confidence >= 0.3) return r.detectedLanguage.split('-')[0];
+    }
+  } catch (e) { }
+  return null;
+}
+async function builtInTranslate(text, from, to) {
+  if (!from || typeof Translator === 'undefined') return null;
+  try {
+    const key = from + '>' + to;
+    const av = await soon(Translator.availability({ sourceLanguage: from, targetLanguage: to }), 1500);
+    if (!av || av === 'unavailable') return null;
+    if (!trMods[key]) trMods[key] = Translator.create({ sourceLanguage: from, targetLanguage: to }).catch(() => { delete trMods[key]; return null; });
+    if (av !== 'available') return null; // its language pack is downloading in the background; use it next time
+    const t = await soon(trMods[key], 3000);
+    if (!t) return null;
+    const out = await soon(t.translate(text), 5000);
+    return out ? { text: String(out).slice(0, 400), from } : null;
+  } catch (e) { return null; }
+}
+function parseTranslation(j, text) {
   const d = (j && j.responseData) || {};
   const status = Number(j && j.responseStatus);
   if (status === 403 && /DISTINCT LANGUAGES/i.test(String(j.responseDetails || d.translatedText))) return { same: true };
+  if (j && j.quotaFinished === true) return { err: 'quota' };
   if (status !== 200 || !d.translatedText || /^MYMEMORY WARNING/i.test(d.translatedText)) return { err: /QUOTA|ALL AVAILABLE FREE/i.test(String(d.translatedText) + j.responseDetails) ? 'quota' : 'failed' };
   const tmp = document.createElement('textarea'); tmp.innerHTML = d.translatedText; // decodes &#39; and friends; never inserted into the page
+  if (text && tmp.value.trim().toLowerCase() === text.trim().toLowerCase()) return { same: true };
   return { text: tmp.value.slice(0, 400), from: String(d.detectedLanguage || '').slice(0, 12) };
 }
-async function translateText(text, to) {
-  try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 7000);
-    const r = await fetch(TRANSLATE_URL + '?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent('autodetect|' + to), { signal: ctl.signal });
-    clearTimeout(timer);
-    const out = parseTranslation(await r.json());
-    if (!out.err || out.err === 'quota') return out;
-  } catch (e) { /* blocked or offline: try through the server */ }
-  if (!onlineReady()) return { err: 'failed' };
+function viaServer(text, to, from) {
+  if (!onlineReady()) return Promise.resolve({ err: 'failed' });
   return new Promise(resolve => {
     const id = randId(12);
     const timer = setTimeout(() => { trWaiting.delete(id); resolve({ err: 'failed' }); }, 12000);
     trWaiting.set(id, m => { clearTimeout(timer); resolve(m); });
-    wsSend({ t: 'translate', id, text, to });
+    wsSend({ t: 'translate', id, text, to, from: from || '' });
   });
+}
+async function translateText(text, to) {
+  const from = await detectLang(text);
+  if (from === to) return { same: true };
+  const own = await builtInTranslate(text, from, to);
+  if (own) return own;
+  let sawQuota = false;
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 7000);
+    const r = await fetch(TRANSLATE_URL + '?q=' + encodeURIComponent(text) + '&langpair=' + encodeURIComponent((from || 'autodetect') + '|' + to), { signal: ctl.signal });
+    clearTimeout(timer);
+    const out = parseTranslation(await r.json(), text);
+    if (!out.err) return from && !out.from ? Object.assign(out, { from }) : out;
+    if (out.err === 'quota') sawQuota = true;
+  } catch (e) { /* blocked or offline */ }
+  const srv = await viaServer(text, to, from); // a different connection, with its own allowance
+  if (!srv.err) return srv;
+  return { err: sawQuota || srv.err === 'quota' ? 'quota' : srv.err };
 }
 
 function setHash(code) {
@@ -325,13 +372,16 @@ class LocalHost {
     const tradeAge = s.trade ? Date.now() - this.tradeSeen.at : 0;
     for (const p of actors) {
       const view = Engine.redact(s, p); // bots only see what a person in their seat would
-      const a = Bot.decide(view, p, rng, { tradeAge });
-      if (!a) continue; // a bot waiting for answers to its offer
-      try { d.game = Engine.apply(s, p, a, rng); }
-      catch (e) {
-        const b = Bot.decide(view, p, rng, { autopilot: true });
-        try { d.game = Engine.apply(s, p, b, rng); } catch (e2) { console.warn('bot stuck', a, b, e2); return; }
-      }
+      let a = null;
+      try { a = Bot.decide(view, p, rng, { tradeAge }); } catch (e) { console.warn('bot', e); a = undefined; }
+      if (a === null) continue; // a bot waiting for answers to its offer
+      let auto = null;
+      try { auto = Bot.decide(view, p, rng, { autopilot: true }); } catch (e) { }
+      // if the bot's choice is refused, fall back to simple moves so the game can't get stuck
+      const tries = [a, auto, { t: 'cancel' }, { t: 'roll' }, { t: 'skipRoads' }, { t: 'pass' }, { t: 'end' }].filter(Boolean);
+      let ok = false;
+      for (const t of tries) { try { d.game = Engine.apply(s, p, t, rng); ok = true; break; } catch (e) { } }
+      if (!ok) { console.warn('bot stuck', s.phase); continue; }
       this.changed();
       return;
     }

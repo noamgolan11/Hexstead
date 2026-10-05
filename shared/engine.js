@@ -166,14 +166,18 @@ const Engine = (() => {
   function addRes(r, c, m = 1) { for (const k of RES) r[k] = (r[k] || 0) + m * ((c && c[k]) || 0); }
   function cleanRes(x) {
     const o = emptyRes();
-    if (!x || typeof x !== 'object') return o;
-    for (const k of RES) {
-      const v = Number(x[k] || 0);
-      if (!Number.isInteger(v) || v < 0 || v > 99) throw err('Invalid card amounts.');
+    if (x == null) return o;
+    if (typeof x !== 'object' || Array.isArray(x)) throw err('Invalid card amounts.');
+    for (const k of Object.keys(x)) {
+      const v = x[k];
+      if (v == null || v === 0) continue;
+      if (!RES.includes(k) || typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 99) throw err('Invalid card amounts.');
       o[k] = v;
     }
     return o;
   }
+  // board positions and player numbers must be exact whole numbers in range
+  function index(x, n, m) { need(typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < n, m || 'That isn\'t a spot on the board.'); return x; }
   function err(m) { const e = new Error(m); e.rule = true; return e; }
   function need(c, m) { if (!c) throw err(m); }
   function clone(x) { return JSON.parse(JSON.stringify(x)); }
@@ -216,6 +220,13 @@ const Engine = (() => {
         edges[ei].hexes.push(hi);
       }
     });
+    // corners one side apart across open water still count as neighbours for the distance rule
+    // (no road can run there, so there's no edge, but two settlements may not sit that close)
+    for (let a = 0; a < verts.length; a++) for (let b = a + 1; b < verts.length; b++) {
+      if (verts[a].adj.includes(b)) continue;
+      const d = Math.hypot(verts[a].x - verts[b].x, verts[a].y - verts[b].y);
+      if (Math.abs(d - 1) < 0.01) { verts[a].adj.push(b); verts[b].adj.push(a); }
+    }
     const idx = new Map(coords.map((c, i) => [c.q + ',' + c.r, i]));
     const hexNbrs = coords.map(c => NEIGH.map(([dq, dr]) => idx.get((c.q + dq) + ',' + (c.r + dr))).filter(x => x !== undefined));
     return { verts, edges, hexVerts, centers, hexNbrs };
@@ -328,7 +339,7 @@ const Engine = (() => {
     return chosen;
   }
   function genBoard(opts, rng) {
-    const id = MAPS[opts.map] ? opts.map : 'standard';
+    const id = hasMap(opts.map) ? opts.map : 'standard';
     const def = MAPS[id];
     const coords = def.coords(rng, opts.players || 4);
     const N = coords.length;
@@ -370,13 +381,14 @@ const Engine = (() => {
     }
     return board;
   }
-  function mapInfo(id) { const d = MAPS[id] || MAPS.standard; return { id: MAPS[id] ? id : 'standard', name: d.name, blurb: d.blurb, min: d.min, max: d.max }; }
+  function hasMap(id) { return typeof id === 'string' && Object.prototype.hasOwnProperty.call(MAPS, id); }
+  function mapInfo(id) { const d = hasMap(id) ? MAPS[id] : MAPS.standard; return { id: hasMap(id) ? id : 'standard', name: d.name, blurb: d.blurb, min: d.min, max: d.max }; }
 
   /* ---------------- game creation ---------------- */
   const DEFAULT_SETTINGS = { vpToWin: 10, discardLimit: 7, friendlyRobber: false, timer: 0, map: 'standard', layout: 'random', maxPlayers: 4 };
   function newGame(cfg, rng) {
     const st = Object.assign({}, DEFAULT_SETTINGS, cfg.settings || {});
-    const def = MAPS[st.map] || MAPS.standard;
+    const def = hasMap(st.map) ? MAPS[st.map] : MAPS.standard;
     const big = !!def.big || cfg.players.length >= 5;
     const board = genBoard({ map: st.map, layout: st.layout, players: cfg.players.length }, rng);
     const T = topo({ board });
@@ -642,7 +654,7 @@ const Engine = (() => {
     const canBuild = (s.phase === 'main' && isCur) || (s.phase === 'special' && s.special && s.special.q[0] === p);
     switch (a.t) {
       case 'settle': {
-        const v = a.v | 0;
+        const v = index(a.v, T.verts.length);
         if (s.phase === 'setup') {
           need(isCur && s.setup.step === 'settlement', 'Not your placement.');
           need(settlementOk(s, p, v, true), 'You can\'t build there.');
@@ -668,7 +680,7 @@ const Engine = (() => {
         break;
       }
       case 'road': {
-        const e = a.e | 0;
+        const e = index(a.e, T.edges.length);
         if (s.phase === 'setup') {
           need(isCur && s.setup.step === 'road', 'Not your placement.');
           need(roadOk(s, p, e, s.setup.lastV), 'The road must touch the settlement you just placed.');
@@ -695,7 +707,7 @@ const Engine = (() => {
         break;
       }
       case 'city': {
-        const v = a.v | 0;
+        const v = index(a.v, T.verts.length);
         need(canBuild, 'You can only build on your turn after rolling.');
         need(piecesLeft(s, p).city > 0, 'No cities left.');
         need(s.bld[v] && s.bld[v].p === p && !s.bld[v].city, 'Cities upgrade one of your settlements.');
@@ -741,7 +753,7 @@ const Engine = (() => {
       }
       case 'robber': {
         need(s.phase === 'robber' && isCur, 'You can\'t move the robber now.');
-        const h = a.h | 0;
+        const h = index(a.h, s.board.hexes.length);
         need(h >= 0 && h < s.board.hexes.length && h !== s.board.robber, 'Move the robber to a different hex.');
         need(legalRobberHexes(s, p).includes(h), 'Friendly robber: that hex is protected.');
         s.board.robber = h;
@@ -754,7 +766,7 @@ const Engine = (() => {
       }
       case 'steal': {
         need(s.phase === 'steal' && isCur, 'You can\'t steal now.');
-        const q = a.q | 0;
+        const q = index(a.q, s.players.length, 'No such player.');
         need(s.stealCands.includes(q), 'Pick a player next to the robber.');
         doSteal(s, p, q, rng);
         s.stealCands = null; s.phase = s.resume; s.resume = null;
@@ -865,7 +877,7 @@ const Engine = (() => {
       }
       case 'confirm': {
         need(s.phase === 'main' && isCur && s.trade && s.trade.from === p && s.trade.id === a.id, 'No offer to confirm.');
-        const q = a.q | 0;
+        const q = index(a.q, s.players.length, 'No such player.');
         const resp = s.trade.resp[q];
         need(q !== p && q >= 0 && q < s.players.length && resp && resp !== 'decline', 'That player hasn\'t accepted.');
         const Q = s.players[q];
@@ -961,7 +973,7 @@ const Engine = (() => {
 
   return {
     addLog: log, redact,
-    RES, T2R, COST, PIECES, DEV_COUNTS, DEV_COUNTS_BIG, PIPS, BANK_START, MAPS, MAP_ORDER, mapInfo, DEFAULT_SETTINGS,
+    RES, T2R, COST, PIECES, DEV_COUNTS, DEV_COUNTS_BIG, PIPS, BANK_START, MAPS, MAP_ORDER, mapInfo, hasMap, DEFAULT_SETTINGS,
     topo, buildTopology, genBoard, newGame, act, apply, clone, total, has, addRes, emptyRes, cleanRes, shuffle,
     piecesLeft, publicVP, vp, vpCards, playable, rates, portAt, settlementOk, roadOk,
     legalSettlements, legalRoads, legalCities, legalRobberHexes, stealCandidates, discardNeeded,
