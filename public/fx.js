@@ -109,8 +109,10 @@ const FX = (() => {
       el.style.left = at.screen.x + 'px'; el.style.top = at.screen.y + 'px'; el.style.borderColor = color;
       el.innerHTML = label;
       layer().appendChild(el);
-      const kf = [{ opacity: 0, transform: 'translate(-50%,-120%) scale(.8)' }, { opacity: 1, transform: 'translate(-50%,-150%) scale(1)', offset: 0.12 }, { opacity: 1, transform: 'translate(-50%,-150%) scale(1)', offset: 0.85 }, { opacity: 0, transform: 'translate(-50%,-160%) scale(1)' }];
-      try { el.animate(kf, { duration: 2200, delay: delay || 0, fill: 'both' }).onfinish = () => el.remove(); } catch (e) { setTimeout(() => el.remove(), 2300); }
+      const tags = layer().querySelectorAll('.fx-tag'); // never more than two name tags on the board at once
+      for (let i = 0; i < tags.length - 2; i++) tags[i].remove();
+      const kf = [{ opacity: 0, transform: 'translate(-50%,-120%) scale(.8)' }, { opacity: 1, transform: 'translate(-50%,-150%) scale(1)', offset: 0.14 }, { opacity: 1, transform: 'translate(-50%,-150%) scale(1)', offset: 0.82 }, { opacity: 0, transform: 'translate(-50%,-160%) scale(1)' }];
+      try { el.animate(kf, { duration: 1500, delay: delay || 0, fill: 'both' }).onfinish = () => el.remove(); } catch (e) { setTimeout(() => el.remove(), 1600); }
     }
   }
   function spot(s, kind, idx) {
@@ -152,6 +154,43 @@ const FX = (() => {
       }, 75);
     }
     st.diceHide = setTimeout(() => { box.className = 'fx-dice'; }, reduced() ? 1600 : 1700); // short, so the board is free to watch the cards
+  }
+
+  /* ---------- the end of a game: a moment for the winner ---------- */
+  function clearBoardFx() {
+    clearInterval(st.diceSpin); clearTimeout(st.diceHide);
+    const d = document.getElementById('fxDice'); if (d) d.className = 'fx-dice';
+    layer().querySelectorAll('.fx-tag, .fx-fly, .fx-float').forEach(x => x.remove());
+  }
+  function showWin(s, e, me) {
+    if (quiet) return;
+    clearBoardFx();
+    const wrap = document.getElementById('boardWrap'); if (!wrap) return;
+    const old = document.getElementById('fxWin'); if (old) old.remove();
+    const color = COLOR_HEX[s.players[e.p].color] || '#e6b05a';
+    const el = document.createElement('div');
+    el.id = 'fxWin'; el.className = 'fx-win';
+    el.style.setProperty('--pc', color);
+    el.innerHTML = `<div class="fx-win-card"><span class="fx-win-crown">${ic('crown')}</span><div class="fx-win-title">${e.p === me ? 'You win!' : esc(pName(s, e.p)) + ' wins'}</div><div class="fx-win-sub">${e.vp} points · ${s.turn} turns</div></div>`;
+    wrap.appendChild(el);
+    st.holdUntil = Date.now() + (reduced() ? 1200 : 2800); // the results wait for this moment
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 500); }, reduced() ? 1200 : 2800);
+    if (reduced()) return;
+    // confetti in every player's colour
+    const colors = s.players.map(p => COLOR_HEX[p.color]).concat(['#e6b05a', '#f3e8cf']);
+    const r = wrap.getBoundingClientRect();
+    for (let i = 0; i < 70; i++) {
+      const c = document.createElement('i');
+      c.className = 'fx-confetti';
+      c.style.background = colors[i % colors.length];
+      c.style.left = (r.left + r.width / 2) + 'px'; c.style.top = (r.top + r.height * 0.42) + 'px';
+      layer().appendChild(c);
+      const ang = Math.random() * Math.PI * 2, sp = 120 + Math.random() * 260;
+      const dx = Math.cos(ang) * sp, dy = Math.sin(ang) * sp * 0.7 - 120;
+      try {
+        c.animate([{ transform: 'translate(0,0) rotate(0)', opacity: 1 }, { transform: `translate(${dx}px,${dy}px) rotate(${Math.random() * 720}deg)`, opacity: 1, offset: 0.45 }, { transform: `translate(${dx * 1.15}px,${dy + 360}px) rotate(${Math.random() * 1080}deg)`, opacity: 0 }], { duration: 2200 + Math.random() * 900, easing: 'cubic-bezier(.2,.7,.4,1)', fill: 'forwards' }).onfinish = () => c.remove();
+      } catch (err) { c.remove(); }
+    }
   }
 
   /* ---------- the ticker: the last few things that happened ---------- */
@@ -225,7 +264,8 @@ const FX = (() => {
       case 'build': {
         const at = e.what === 'road' ? spot(s, 'e', e.e) : spot(s, 'v', e.v);
         const what = e.what === 'settlement' ? 'Settlement' : e.what === 'city' ? 'City' : 'Road';
-        if (at) ripple(s, at, color(e.p), `<b style="color:${color(e.p)}">${name(s, e.p, me)}</b> · ${what}${e.free ? ' (free)' : ''}`);
+        // your own builds just ripple; other players' builds also get a name tag
+        if (at) ripple(s, at, color(e.p), e.p === me ? '' : `<b style="color:${color(e.p)}">${name(s, e.p, me)}</b> · ${what}${e.free ? ' (free)' : ''}`);
         const duringSetup = !s.log.some(x => x.k === 'roll' && x.id < e.id); // the starting pieces are free
         if (!e.free && !duringSetup) {
           const c = Engine.COST[e.what]; let k = 0;
@@ -290,6 +330,7 @@ const FX = (() => {
       case 'offer': ticker(`${P(e.p)} ${e.p === me ? 'offer' : 'offers'} ${cards(e.give)} for ${cards(e.get)}`, color(e.p)); return;
       case 'counter': ticker(`${P(e.p)} ${e.p === me ? 'counter' : 'counters'}: ${cards(e.give)} for ${cards(e.get)}`, color(e.p)); return;
       case 'timeout': ticker(`${P(e.p)} ran out of time`, color(e.p)); return;
+      case 'win': showWin(s, e, me); return;
     }
   }
 
@@ -319,6 +360,6 @@ const FX = (() => {
   }
   function reset() { st.key = null; }
   // let the dice land before a pop-up (like "discard half") covers them
-  function holdFor() { return Math.max(0, (st.rollShownUntil || 0) - Date.now()); }
+  function holdFor() { return Math.max(0, Math.max(st.rollShownUntil || 0, st.holdUntil || 0) - Date.now()); }
   return { run, reset, holdFor };
 })();

@@ -2,7 +2,7 @@
    HEXSTEAD CLIENT NET — talks to the game server over a WebSocket.
    The server owns every online table. Practice games run locally.
    ============================================================ */
-const HEXSTEAD_VERSION = '2.2.1';
+const HEXSTEAD_VERSION = '2.3';
 const COLORS = [
   { id: 'red', name: 'Crimson', hex: '#d8463b' },
   { id: 'blue', name: 'Cobalt', hex: '#3b78e0' },
@@ -35,6 +35,7 @@ const app = {
   g: null,
   ui: { mode: null, modal: null, tab: 'log', draft: null, seenChat: 0 },
 };
+app.returning = !!store('hexstead.token'); // played here before this visit
 (function initToken() {
   let t = store('hexstead.token');
   if (!t || !/^[A-Za-z0-9_-]{16,64}$/.test(t)) { t = randId(32); store('hexstead.token', t); }
@@ -43,6 +44,7 @@ const app = {
 function setMyName(n) { app.me.name = String(n || '').trim().slice(0, 18); store('hexstead.name', app.me.name); }
 
 /* ---------------- connection ---------------- */
+app.conn.since = Date.now();
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
   let ws;
@@ -83,7 +85,10 @@ function onlineReady() { return app.conn.state === 'open' && !!app.me.uid; }
 function onMessage(m) {
   const g = app.g;
   switch (m.t) {
-    case 'welcome': app.me.uid = m.uid; app.serverTranslates = m.tr === 'server'; render(); return;
+    case 'welcome':
+      app.me.uid = m.uid; app.serverTranslates = m.tr === 'server';
+      if (app.pendingCreate && app.view === 'home') { const n = app.pendingCreate; app.pendingCreate = null; createTable(n); } // asked before the server woke up
+      render(); return;
     case 'tables': app.lobbyList = m.list || []; if (app.view === 'home') renderHomeTables(); return;
     case 'created':
       if (app.wantCreate) { app.wantCreate = false; enterOnline(m.code, true); }
@@ -131,7 +136,7 @@ function emptyDoc(code, owner) {
   return { v: 1, code, status: 'lobby', owner, createdAt: now, updatedAt: now, settings: Object.assign({}, Engine.DEFAULT_SETTINGS), seats: [], chat: [], applied: {}, game: null };
 }
 function createTable(nick) {
-  if (!onlineReady()) { toast('Not connected to the server yet.', 'error'); return; }
+  if (!onlineReady()) { app.pendingCreate = nick; toast('The server is waking up. Your table opens as soon as it\'s ready.'); renderHomeStatus(); return; }
   app.wantCreate = true;
   wsSend({ t: 'create', nick });
 }

@@ -41,7 +41,10 @@ const FILES = {
 };
 const cache = new Map();
 function fileFor(url) {
-  const f = FILES[url];
+  let f = FILES[url];
+  // bundled fonts (and their licences) by name only, never a path that leaves the folder
+  const m = /^\/fonts\/([a-z0-9-]+)\.(woff2|txt)$/.exec(url);
+  if (!f && m) f = ['public/fonts/' + m[1] + '.' + m[2], m[2] === 'woff2' ? 'font/woff2' : 'text/plain; charset=utf-8'];
   if (!f) return null;
   const full = path.join(ROOT, f[0]);
   const st = fs.statSync(full);

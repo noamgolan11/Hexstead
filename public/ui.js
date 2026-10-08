@@ -155,11 +155,12 @@ function renderHome() {
           <div class="eyebrow">Settle · Trade · Build</div>
           <h1 class="wordmark">Hex<span>stead</span></h1>
           <p class="tagline">Claim the best corners of the island, trade with your rivals, and be the first to reach the winning score.</p>
+          <div class="hero-cta"><button class="btn primary big" data-act="practice">${ic('die')} Play vs bots</button><button class="btn big" data-act="goto-friends">${ic('people')} Play with friends</button></div>
         </div>
         <div class="hero-board" id="hero" aria-hidden="true"></div>
       </header>
       <div class="home-grid">
-        <section class="card">
+        <section class="card" id="friendsCard">
           <h2>Play with friends</h2>
           <p class="sub">Open a table, send your friends the link, and start when everyone has a seat. No accounts needed.</p>
           <div class="field" style="margin-bottom:12px;max-width:320px"><label for="homeName">Your name</label><input class="input" id="homeName" maxlength="18" placeholder="What should others call you?" autocomplete="nickname"></div>
@@ -182,7 +183,7 @@ function renderHome() {
         </section>
       </div>
       <details class="howto card"><summary>How to play</summary>${rulesHTML()}</details>
-      <p class="note" style="text-align:center;margin-top:18px">Hexstead v${HEXSTEAD_VERSION}</p>`;
+      <p class="note" style="text-align:center;margin-top:18px">Hexstead v${HEXSTEAD_VERSION} · <button class="linkish" data-act="news">What's new</button></p>`;
     $('#joinForm').addEventListener('submit', e => {
       e.preventDefault();
       const c = $('#joinCode').value.trim().toUpperCase();
@@ -214,12 +215,17 @@ function renderHomeStatus() {
   const el = $('#netStatus'); if (!el) return;
   let html, can = false;
   if (onlineReady()) { can = true; html = '<span class="dot on"></span> Connected to the game server'; }
-  else if (app.conn.state === 'closed') html = '<span class="dot"></span> Can\'t reach the game server. Retrying… (practice mode still works)';
-  else html = '<span class="dot"></span> Connecting to the game server… (a sleeping server can take up to a minute to wake)';
+  else {
+    // a free server sleeps when nobody uses it; show how long it's been so the wait doesn't feel stuck
+    const secs = Math.round((Date.now() - (app.conn.since || Date.now())) / 1000);
+    const pct = Math.min(100, Math.round(secs / 60 * 100));
+    html = `<div class="wake"><div class="wake-top"><span class="dot wait"></span> Waking up the game server… <b>${secs}s</b></div><div class="wake-bar"><i style="width:${pct}%"></i></div><div class="note">${secs < 70 ? 'Free servers nap when nobody is playing and take up to a minute to wake. You can start a practice game meanwhile.' : 'This is taking longer than usual. Check your connection; practice games still work.'}${app.pendingCreate ? ' <b>Your table opens as soon as it\'s ready.</b>' : ''}</div></div>`;
+  }
   setHTML(el, html);
   const cb = $('#createBtn'), jb = $('#joinBtn');
-  if (cb) cb.disabled = !can;
-  if (jb) jb.disabled = !can;
+  if (cb) cb.disabled = false;
+  if (jb) jb.disabled = false;
+  void can;
 }
 
 function renderHomeTables() {
@@ -254,24 +260,29 @@ function renderPractice() {
   const maxBots = Engine.mapInfo(p.map).max - 1;
   if (p.bots > maxBots) p.bots = maxBots;
   const m = Engine.mapInfo(p.map);
-  setHTML($('#practiceOpts'), `<div class="field" style="margin-bottom:12px"><span class="lbl">Map</span>${mapPicker('pmap', p.map)}<span class="note">${esc(m.blurb)}</span></div>
+  const few = app.ui.allMaps ? null : Engine.MAP_ORDER.slice(0, 5).concat(Engine.MAP_ORDER.slice(0, 5).includes(p.map) ? [] : [p.map]);
+  setHTML($('#practiceOpts'), `<div class="field" style="margin-bottom:12px"><span class="lbl">Map</span>${mapPicker('pmap', p.map, false, 0, few)}<span class="note">${esc(m.blurb)}</span></div>
     <div class="settings-grid">
     <div class="field"><span class="lbl">Opponents</span><div class="seg" role="group" aria-label="Number of bots">${[1, 2, 3, 4, 5].filter(n => n <= maxBots).map(n => `<button data-act="pbots" data-n="${n}" aria-pressed="${p.bots === n}">${n}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl">Bot difficulty</span><div class="seg" role="group" aria-label="Bot difficulty">${Bot.LEVELS.map(l => `<button data-act="plevel" data-v="${l}" aria-pressed="${(p.level || 'normal') === l}" title="${esc(LEVEL_HELP[l])}">${l[0].toUpperCase() + l.slice(1)}</button>`).join('')}</div></div>
+    </div>
+    <details class="more-opts"${app.ui.moreOpts ? ' open' : ''}><summary>More options</summary><div class="settings-grid">
     <div class="field"><span class="lbl">Points to win</span>${stepper('pvp', p.vp, 5, 20)}</div>
     <div class="field"><span class="lbl">Board</span><div class="seg" role="group" aria-label="Board layout">${[['random', 'Random'], ['balanced', 'Balanced']].map(([k, l]) => `<button data-act="playout" data-v="${k}" aria-pressed="${p.layout === k}">${l}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl" title="${esc(DICE_HELP)}">Dice</span><div class="seg" role="group" aria-label="Dice">${[['random', 'Random'], ['balanced', 'Balanced']].map(([k, l]) => `<button data-act="pdice" data-v="${k}" aria-pressed="${p.dice === k}" title="${k === 'balanced' ? esc(DICE_HELP) : 'Ordinary random dice'}">${l}</button>`).join('')}</div></div>
     <div class="field"><span class="lbl">Friendly robber</span><label class="switch"><input type="checkbox" id="pfriendly" ${p.friendly ? 'checked' : ''}> <span class="note">Protect players with 2 points or fewer</span></label></div>
-  </div>`);
+  </div></details>`);
   const f = $('#pfriendly'); if (f) f.onchange = () => { p.friendly = f.checked; };
+  const mo = $('#practiceOpts .more-opts'); if (mo) mo.ontoggle = () => { app.ui.moreOpts = mo.open; };
 }
-function mapPicker(act, current, disabled, players) {
-  return `<div class="maps" role="group" aria-label="Map">${Engine.MAP_ORDER.map(id => {
+function mapPicker(act, current, disabled, players, only) {
+  const ids = only || Engine.MAP_ORDER;
+  return `<div class="maps" role="group" aria-label="Map">${ids.map(id => {
     const m = Engine.mapInfo(id);
     const tooSmall = players && players > m.max;
     return `<button class="map-card" data-act="${act}" data-v="${id}" aria-pressed="${current === id}" ${disabled || tooSmall ? 'disabled' : ''} title="${esc(m.blurb)}">
       <span class="map-thumb">${mapThumb(id)}</span><span class="map-name">${esc(m.name)}</span><span class="map-meta">${m.min}–${m.max} players</span></button>`;
-  }).join('')}</div>`;
+  }).join('')}${only ? `<button class="map-card more" data-act="allmaps"><span class="map-more">+${Engine.MAP_ORDER.length - ids.length}</span><span class="map-name">All maps</span><span class="map-meta">${Engine.MAP_ORDER.length} in total</span></button>` : ''}</div>`;
 }
 function stepper(key, val, lo, hi, disabled) {
   return `<div class="stepper"><button data-act="${key}" data-d="-1" ${disabled || val <= lo ? 'disabled' : ''} aria-label="Decrease">−</button><output>${val}</output><button data-act="${key}" data-d="1" ${disabled || val >= hi ? 'disabled' : ''} aria-label="Increase">+</button></div>`;
@@ -392,8 +403,8 @@ function renderLobby(stage, d) {
   const online = onlineSet();
   setHTML($('#lobbyHead'), `<div class="eyebrow">Table</div><h1>Waiting for players</h1>
     <div class="invite" style="margin-top:10px"><span class="big-code">${esc(d.code)}</span>
-      <button class="btn" data-act="copy-invite">Copy invite link</button></div>
-    <p class="note" style="margin-top:8px">Send the link to your friends. They open it, type a name, and take a seat. They can also enter the code on the home page.</p>`);
+      <button class="btn primary" data-act="copy-invite">${ic('people')} ${canShare() ? 'Share invite' : 'Copy invite link'}</button></div>
+    <p class="note" style="margin-top:8px">Friends open the link, type a name and sit down, or enter the code on the home page.</p>`);
   const seats = d.seats.map((s, i) => `<div class="seat">
       <div class="row" style="justify-content:space-between"><span class="sw" style="background:${COLOR_HEX[s.color]}"></span>
         <span class="row" style="gap:6px">${s.uid === d.owner ? '<span class="chip brass">Host</span>' : ''}${s.uid === me ? '<span class="chip ok">You</span>' : ''}${!s.bot && !g.local ? `<span class="dot${online.has(s.uid) || s.uid === me ? ' on' : ''}" title="${online.has(s.uid) || s.uid === me ? 'Online' : 'Not here right now'}"></span>` : ''}</span></div>
@@ -436,8 +447,9 @@ function renderLobby(stage, d) {
   if (key === 'seated') {
     const mine = d.seats[seatIdx].color;
     setHTML($('#youSwatches'), `<div class="swatches">${COLORS.map(c => {
-      const taken = d.seats.some((s, j) => j !== seatIdx && s.color === c.id);
-      return `<button class="swatch" style="background:${c.hex}" data-act="color" data-c="${c.id}" aria-label="${c.name}" aria-pressed="${mine === c.id}" ${taken ? 'disabled' : ''}></button>`;
+      const by = d.seats.find((s, j) => j !== seatIdx && s.color === c.id);
+      const label = by ? `${c.name}, taken by ${seatName(by)}` : c.name;
+      return `<button class="swatch${by ? ' taken' : ''}" style="background:${c.hex}" data-act="color" data-c="${c.id}" aria-label="${esc(label)}" title="${esc(label)}" aria-pressed="${mine === c.id}" ${by ? 'disabled' : ''}></button>`;
     }).join('')}</div>`);
   }
   // settings
@@ -465,6 +477,9 @@ function renderLobby(stage, d) {
   setHTML($('#players'), '');
 }
 
+function canShare() {
+  try { return !!navigator.share && matchMedia('(pointer: coarse)').matches; } catch (e) { return false; }
+}
 function onlineSet() {
   const g = app.g;
   return g && g.online ? g.online : new Set();
@@ -516,6 +531,7 @@ function renderTable(stage, d) {
         <button class="emote-fab" id="emoteFab" data-act="emotes" aria-label="Emotes and quick chat" title="Emotes and quick chat" hidden>${ic('smile')}</button>
         <div class="hud hud-dice" id="hudDice"></div>
         <div class="hud hud-bank" id="hudBank"></div>
+        <div class="pstrip" id="pstrip" aria-label="Players"></div>
         <div class="banner-wrap"><div class="banner" id="banner" role="status"></div></div>
         <div id="floatTrade"></div>
       </div>
@@ -572,6 +588,45 @@ function renderTable(stage, d) {
   renderFloatTrade(d, s, me);
   renderDock(d, s, me);
   renderPlayers(d, s, me);
+  renderPStrip(d, s, me);
+  turnAlerts(d, s, me);
+}
+
+/* compact screens: everyone's name, points and cards in one row at the top of the board */
+function renderPStrip(d, s, me) {
+  const el = $('#pstrip'); if (!el) return;
+  const ended = s.phase === 'ended';
+  const crown = leaders(s);
+  setHTML(el, s.players.map((pl, i) => {
+    const turn = !ended && (s.phase === 'special' && s.special ? s.special.q[0] === i : s.cur === i);
+    const vp = ended || i === me ? Engine.vp(s, i) : Engine.publicVP(s, i);
+    const cards = pl.nCards != null ? pl.nCards : Engine.total(pl.res);
+    return `<div class="ps${turn ? ' turn' : ''}${i === me ? ' me' : ''}" style="--pc:${COLOR_HEX[pl.color]}" title="${esc(seatName(pl))}: ${vp} points, ${cards} cards">
+      <span class="ps-nm">${crown.has(i) ? `<span class="crown">${ic('crown')}</span>` : ''}<span class="t">${i === me ? 'You' : esc(seatName(pl))}</span>${tradeStatus(s, i)}</span>
+      <span class="ps-vp">${vp}</span><span class="ps-cards">${ic('cards')}${cards}</span></div>`;
+  }).join(''));
+}
+
+/* your turn: a pulse on the status bar, the tab title, and a short buzz on phones that support it */
+function turnKey(s) { return s.turn + ':' + s.phase + ':' + (s.setup ? s.setup.i : '') + ':' + (s.special ? s.special.q.length : ''); }
+function turnAlerts(d, s, me) {
+  const mine = me >= 0 && s.phase !== 'ended' && Engine.pendingActors(s).includes(me) && !(s.players[me] && s.players[me].auto);
+  const key = mine ? turnKey(s) : '';
+  if (key && app.ui.turnAlertKey !== key) {
+    const fresh = app.ui.turnAlertKey !== undefined;
+    app.ui.turnAlertKey = key;
+    if (fresh) {
+      app.ui.turnPulse = key;
+      const b = $('#banner'); if (b) { b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse'); }
+      // a short buzz on phones that allow it (browsers only allow it while the page is showing)
+      try { if (!document.hidden && navigator.vibrate && !Sound.get().muted && matchMedia('(pointer: coarse)').matches) navigator.vibrate([50, 40, 50]); } catch (e) { }
+    }
+  } else if (!key) app.ui.turnAlertKey = '';
+  setTitle(mine);
+}
+function setTitle(mine) {
+  const t = mine ? '● Your turn · Hexstead' : 'Hexstead';
+  if (document.title !== t) document.title = t;
 }
 
 /* ---------- build previews: every spot a piece could go, shown while pointing at a build button ---------- */
@@ -636,7 +691,7 @@ function targetsOnly(s, tg) {
   }
   if (tg.v) for (const v of tg.v) {
     const p = T.verts[v];
-    out.push(`<circle class="tgt-hit" data-v="${v}" cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="22"/><circle class="tgt-v" pointer-events="none" cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="10"/>`);
+    out.push(`<circle class="tgt-hit" data-v="${v}" cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="34"/><circle class="tgt-v" pointer-events="none" cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="12"/>`);
   }
   return out.join('');
 }
@@ -680,8 +735,10 @@ function renderBanner(d, s, me) {
   const mine = s.phase !== 'ended' && ((s.phase === 'special' ? actor === me : s.cur === me) || (s.phase === 'discard' && Engine.discardNeeded(s, me) > 0));
   const who = s.phase === 'ended' ? s.winner : actor;
   const el = $('#banner');
-  el.className = 'banner' + (mine ? ' you' : '');
-  setHTML(el, `<span class="who" style="background:${COLOR_HEX[s.players[who].color]}"></span><span>${esc(bannerInfo(d, s, me))}</span><span class="clock" id="clock"></span>${s.phase === 'roadBuilding' && s.cur === me ? '<button class="btn small" data-act="skiproads">Skip</button>' : ''}${app.ui.mode ? '<button class="btn small" data-act="mode" data-m="">Cancel</button>' : ''}`);
+  el.className = 'banner' + (mine ? ' you' : '') + (mine && app.ui.turnPulse === turnKey(s) ? ' pulse' : '');
+  el.style.setProperty('--turn', COLOR_HEX[s.players[who].color]);
+  const dice = s.dice ? `<span class="bdice" aria-hidden="true">${dieSVG(s.dice[0])}${dieSVG(s.dice[1], true)}<b>${s.dice[0] + s.dice[1]}</b></span>` : '';
+  setHTML(el, `${dice}<span class="who" style="background:${COLOR_HEX[s.players[who].color]}"></span><span class="btxt">${esc(bannerInfo(d, s, me))}</span><span class="clock" id="clock"></span>${s.phase === 'roadBuilding' && s.cur === me ? '<button class="btn small" data-act="skiproads">Skip</button>' : ''}${app.ui.mode ? '<button class="btn small" data-act="mode" data-m="">Cancel</button>' : ''}`);
   updateClock();
 }
 function updateClock() {
@@ -716,14 +773,21 @@ function respStatus(s, t, q) {
   return `<span class="st counter">${ic('quill')}Counter-offer</span>`;
 }
 
-/* everyone else's answers to an offer, counter-offers spelled out */
+/* everyone else's answers to an offer, counter-offers spelled out; people still thinking share one line */
 function otherReplies(s, t, list) {
   if (!list.length) return '';
-  return `<div class="ft-others">${list.map(i => {
+  const thinking = list.filter(i => t.resp[i] === undefined && !(t.drafting && t.drafting[i]));
+  const rows = list.filter(i => !thinking.includes(i)).map(i => {
     const r = t.resp[i];
     const terms = r && typeof r === 'object' ? `<span class="counter-terms">gives ${tradeCards(r.give)} for ${tradeCards(r.get)}</span>` : '';
     return `<div class="resp small"><span class="sw" style="background:${COLOR_HEX[s.players[i].color]}"></span><span class="nm">${esc(pName(s, i))}</span>${respStatus(s, t, i)}${terms}</div>`;
-  }).join('')}</div>`;
+  });
+  if (thinking.length) rows.push(`<div class="resp small thinking"><span class="sws">${thinking.map(i => `<span class="sw" style="background:${COLOR_HEX[s.players[i].color]}"></span>`).join('')}</span><span class="nm">${esc(thinking.map(i => pName(s, i)).join(', '))}</span><span class="st wait">${thinking.length > 1 ? 'are' : 'is'} deciding<span class="dots"><i></i><i></i><i></i></span></span></div>`);
+  return `<div class="ft-others">${rows.join('')}</div>`;
+}
+/* the two sides of a deal, always "you give" first */
+function dealHTML(give, get, lg, lt) {
+  return `<div class="ft-deal"><span class="ft-side give"><span class="lbl">${lg || 'You give'}</span>${tradeCards(give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side get"><span class="lbl">${lt || 'You get'}</span>${tradeCards(get)}</span></div>`;
 }
 
 function renderFloatTrade(d, s, me) {
@@ -731,6 +795,16 @@ function renderFloatTrade(d, s, me) {
   const t = s.trade;
   if (!t || s.phase === 'ended') { setHTML(el, ''); return; }
   const from = t.from;
+  // a new offer from someone else waits until the dice on screen have landed, so the two never overlap
+  if (from !== me && app.ui.ftId !== t.id && typeof FX !== 'undefined') {
+    const wait = FX.holdFor();
+    if (wait > 0) {
+      setHTML(el, '');
+      clearTimeout(app.ui.ftWait);
+      app.ui.ftWait = setTimeout(() => { const g = app.g, v = g && g.view; if (v && v.game) renderFloatTrade(v, v.game, myIndexIn(v)); }, wait + 30);
+      return;
+    }
+  }
   const others = s.players.map((_, i) => i).filter(i => i !== from);
   let html = '';
   if (from === me) {
@@ -742,30 +816,30 @@ function renderFloatTrade(d, s, me) {
       if (r === 'accept') act = `<button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}">Trade</button>`;
       else if (r && r !== 'decline') {
         const short = missingText(P.res, r.get);
-        act = `<span class="counter-terms">you get ${tradeCards(r.give)} <span class="ft-swap">${ic('trade')}</span> you give ${tradeCards(r.get)}</span><button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}" ${short ? `aria-disabled="true" title="${esc(short)}"` : ''}>Accept</button>`;
+        act = `<span class="counter-terms">you give ${tradeCards(r.get)} <span class="ft-swap">${ic('trade')}</span> you get ${tradeCards(r.give)}</span><button class="btn small primary" data-act="confirm" data-q="${i}" data-id="${t.id}" ${short ? `aria-disabled="true" title="${esc(short)}"` : ''}>Accept</button>`;
       }
       return `<div class="resp"><span class="sw" style="background:${COLOR_HEX[pl.color]}"></span><span class="nm">${esc(pName(s, i))}</span>${respStatus(s, t, i)}<span class="resp-act">${act}</span></div>`;
     }).join('');
     const waiting = others.filter(i => t.resp[i] === undefined).length;
     html = `<div class="float-trade mine">
-      <div class="ft-top"><span class="ft-title">Your offer</span><div class="ft-deal"><span class="ft-side"><span class="lbl">You give</span>${tradeCards(t.give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side"><span class="lbl">You get</span>${tradeCards(t.get)}</span></div></div>
+      <div class="ft-top"><span class="ft-title">Your offer</span>${dealHTML(t.give, t.get)}</div>
       <div class="resp-list">${rows}</div>
       <div class="ft-foot"><span class="note">${waiting ? 'Waiting for ' + waiting + ' ' + (waiting > 1 ? 'players' : 'player') + '…' : 'Everyone has answered.'}</span><button class="btn small" data-act="cancel-offer">Cancel offer</button></div></div>`;
   } else if (me < 0) {
-    html = `<div class="float-trade"><div class="ft-top"><span class="ft-title">${pTag(s, from)} offers</span><div class="ft-deal"><span class="ft-side">${tradeCards(t.give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side">${tradeCards(t.get)}</span></div></div>
+    html = `<div class="float-trade"><div class="ft-top"><span class="ft-title">${pTag(s, from)} offers</span>${dealHTML(t.give, t.get, 'Gives', 'Wants')}</div>
       ${otherReplies(s, t, others)}</div>`;
   } else {
     const r = t.resp[me];
     const P = s.players[me];
     const short = missingText(P.res, t.get);
     let ctl;
-    if (r === undefined) ctl = `<button class="btn primary" data-act="accept" data-id="${t.id}" ${short ? `aria-disabled="true" title="${esc(short)}"` : ''}>${ic('check')}Accept</button><button class="btn" data-act="counter-open" data-id="${t.id}">${ic('quill')}Counter</button><button class="btn" data-act="decline" data-id="${t.id}">${ic('x')}Decline</button>${short ? `<span class="note">${esc(short)}</span>` : ''}`;
+    if (r === undefined) ctl = `<button class="btn primary" data-act="accept" data-id="${t.id}" ${short ? `aria-disabled="true" title="${esc(short)}"` : ''}>${ic('check')}Accept</button><button class="btn" data-act="counter-open" data-id="${t.id}">${ic('quill')}Counter</button><button class="btn" data-act="decline" data-id="${t.id}">${ic('x')}Decline</button>${short ? `<span class="note short">${esc(short)}</span>` : ''}`;
     else if (r === 'accept') ctl = `<span class="st yes">${ic('check')}You accepted.</span><span class="note">Waiting for ${esc(pName(s, from))} to pick a partner.</span>`;
     else if (r === 'decline') ctl = `<span class="st no">${ic('x')}You declined.</span>`;
     else ctl = `<span class="st counter">${ic('quill')}Counter sent:</span><span class="counter-terms">you give ${tradeCards(r.give)} for ${tradeCards(r.get)}</span>`;
     const rest = others.filter(i => i !== me);
     html = `<div class="float-trade incoming">
-      <div class="ft-top"><span class="ft-title">${pTag(s, from)} offers you a trade</span><div class="ft-deal"><span class="ft-side"><span class="lbl">You get</span>${tradeCards(t.give)}</span><span class="ft-swap">${ic('trade')}</span><span class="ft-side"><span class="lbl">You give</span>${tradeCards(t.get)}</span></div></div>
+      <div class="ft-top"><span class="ft-title">${pTag(s, from)} offers you a trade</span>${dealHTML(t.get, t.give)}</div>
       <div class="ft-actions">${ctl}</div>
       ${otherReplies(s, t, rest)}</div>`;
   }
@@ -893,7 +967,7 @@ function renderFeed(d) {
   if (app.ui.feedMode !== fm) { app.ui.feedMode = fm; app.ui.tab = playing ? 'log' : 'chat'; }
   if (!playing && app.ui.tab === 'log') app.ui.tab = 'chat';
   if (local) app.ui.tab = 'log';
-  setHTML($('#feedTabs'), `${playing ? `<button role="tab" data-act="tab" data-tab="log" aria-selected="${app.ui.tab === 'log'}">Log</button>` : ''}${local ? '' : `<button role="tab" data-act="tab" data-tab="chat" aria-selected="${app.ui.tab === 'chat'}">Chat${unread ? '<span class="unread"></span>' : ''}</button>`}`);
+  setHTML($('#feedTabs'), local ? '<span class="feed-title">Game log</span>' : `${playing ? `<button role="tab" data-act="tab" data-tab="log" aria-selected="${app.ui.tab === 'log'}">Log</button>` : ''}<button role="tab" data-act="tab" data-tab="chat" aria-selected="${app.ui.tab === 'chat'}">Chat${unread ? '<span class="unread"></span>' : ''}</button>`);
   const logEl = $('#logList'), chatEl = $('#chatList');
   logEl.hidden = app.ui.tab !== 'log';
   chatEl.hidden = app.ui.tab !== 'chat';
@@ -903,7 +977,7 @@ function renderFeed(d) {
   if (playing) {
     const s = d.game, me = myIndexIn(d);
     const atBottom = stick(logEl);
-    setHTML(logEl, s.log.slice(-140).map(e => logLine(s, e, me)).join(''));
+    setHTML(logEl, logHTML(s, me));
     if (atBottom || !logEl._scrolled) { logEl.scrollTop = logEl.scrollHeight; logEl._scrolled = true; }
   }
   const atB = stick(chatEl);
@@ -967,36 +1041,57 @@ function bankRate(e) {
   return n + ':1' + (n < 4 ? ' harbour' : '');
 }
 function logLine(s, e, me) {
-  const P = i => pTag(s, i);
-  const V = (i, third, plain) => (i === me && pName(s, i) === 'You' ? plain : third); // "You offer", "Ada offers"
+  // you are "You" in your own log, like everywhere else; verbs follow ("You offer", "Ada offers")
+  const P = i => i === me ? `<span class="pn" style="color:${COLOR_HEX[s.players[i].color]}">You</span>` : pTag(s, i);
+  const O = i => i === me ? `<span class="pn" style="color:${COLOR_HEX[s.players[i].color]}">you</span>` : pTag(s, i);
+  const V = (i, third, plain) => (i === me ? plain : third);
   switch (e.k) {
     case 'start': return '<div class="log-e">The island is ready. Each player places two settlements and two roads, in snake order.</div>';
-    case 'turn': return `<div class="log-turn">${esc(pName(s, e.p))} · turn ${e.turn}</div>`;
+    case 'turn': return `<div class="log-turn">${e.p === me ? 'Your turn' : esc(pName(s, e.p))} · turn ${e.turn}</div>`;
     case 'roll': return `<div class="log-e">${P(e.p)} rolled <span class="mini-die">${e.d[0]}</span><span class="mini-die">${e.d[1]}</span> <b>${e.d[0] + e.d[1]}</b></div>`;
-    case 'gain': return `<div class="log-e">${P(e.p)} ${e.setup ? 'starts with' : e.card ? 'took' : 'got'} ${resList(e.res)}${e.card ? ' <span class="note">from the bank with Year of Plenty</span>' : e.setup ? ' <span class="note">from their second settlement</span>' : ''}</div>`;
+    case 'gain': return `<div class="log-e">${P(e.p)} ${e.setup ? V(e.p, 'starts with', 'start with') : e.card ? 'took' : 'got'} ${resList(e.res)}${e.card ? ' <span class="note">from the bank with Year of Plenty</span>' : e.setup ? ` <span class="note">from ${e.p === me ? 'your' : 'their'} second settlement</span>` : ''}</div>`;
     case 'build': return `<div class="log-e">${P(e.p)} built a ${e.what}${e.free ? ' (free)' : ''}</div>`;
     case 'buyDev': return `<div class="log-e">${P(e.p)} bought a development card${e.p === me ? ': <b>' + DEV_NAME[e.card] + '</b>' : ''}</div>`;
     case 'play': return `<div class="log-e">${P(e.p)} played <b>${DEV_NAME[e.card]}</b></div>`;
     case 'robber': { const h = s.board.hexes[e.h]; return `<div class="log-e">${P(e.p)} moved the robber to ${TERRAIN[h.t].name}${h.n ? ' ' + h.n : ''}</div>`; }
-    case 'steal': return `<div class="log-e">${P(e.p)} stole ${e.p === me || e.q === me ? resList({ [e.r]: 1 }) : 'a card'} from ${P(e.q)}</div>`;
+    case 'steal': return `<div class="log-e">${P(e.p)} stole ${e.p === me || e.q === me ? resList({ [e.r]: 1 }) : 'a card'} from ${O(e.q)}</div>`;
     case 'stealNone': return `<div class="log-e">${P(e.q)} had nothing to steal</div>`;
     case 'discard': return `<div class="log-e">${P(e.p)} discarded ${e.n} cards</div>`;
     case 'bank': { const rate = bankRate(e); return `<div class="log-e">${P(e.p)} traded ${resList(e.give)} for ${resList(e.get)} with the bank <span class="note">${rate}</span></div>`; }
     case 'offer': return `<div class="log-e">${P(e.p)} ${V(e.p, 'offers', 'offer')} ${resList(e.give)} for ${resList(e.get)}</div>`;
     case 'counter': return `<div class="log-e">${P(e.p)} ${V(e.p, 'counters', 'counter')}: ${resList(e.give)} for ${resList(e.get)}</div>`;
-    case 'trade': return `<div class="log-e">${P(e.p)} gave ${resList(e.give)} to ${P(e.q)} for ${resList(e.get)}</div>`;
+    case 'trade': return `<div class="log-e">${P(e.p)} gave ${resList(e.give)} to ${O(e.q)} for ${resList(e.get)}</div>`;
     case 'mono': return `<div class="log-e">${P(e.p)} took all ${e.n} ${ri(e.r)} from the other players with Monopoly</div>`;
     case 'lr': return `<div class="log-e">${P(e.p)} ${V(e.p, 'holds', 'hold')} <b>Longest Road</b> (${e.len})</div>`;
     case 'lrLost': return `<div class="log-e">Longest Road is up for grabs again</div>`;
     case 'la': return `<div class="log-e">${P(e.p)} ${V(e.p, 'holds', 'hold')} <b>Largest Army</b> (${e.n} knights)</div>`;
     case 'short': return `<div class="log-e">The bank ran short of ${e.res.map(r => RES_NAME[r].toLowerCase()).join(', ')}. Nobody was paid that resource.</div>`;
     case 'special': { const ni = (e.p + 1) % s.players.length; return `<div class="log-e note">Special building before ${ni === me ? 'your' : P(ni) + '\'s'} turn</div>`; }
-    case 'autoOn': return `<div class="log-e">A bot is playing for ${P(e.p)} while they're away</div>`;
-    case 'autoOff': return `<div class="log-e">${P(e.p)} is back</div>`;
-    case 'timeout': return `<div class="log-e">${P(e.p)} ran out of time. Moves were made for them.</div>`;
+    case 'autoOn': return `<div class="log-e">A bot is playing for ${O(e.p)} while ${e.p === me ? 'you\'re' : 'they\'re'} away</div>`;
+    case 'autoOff': return `<div class="log-e">${P(e.p)} ${V(e.p, 'is', 'are')} back</div>`;
+    case 'timeout': return `<div class="log-e">${P(e.p)} ran out of time. Moves were made for ${e.p === me ? 'you' : 'them'}.</div>`;
     case 'win': return `<div class="log-e"><b>${e.p === me ? 'You win' : P(e.p) + ' wins'} with ${e.vp} points!</b></div>`;
   }
   return '';
+}
+// the log, with each roll's income gathered into one line ("Ada +1 lumber · You +2 grain")
+function logHTML(s, me) {
+  const list = s.log.slice(-160);
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i];
+    if (e.k === 'gain' && !e.setup && !e.card) {
+      const parts = [];
+      while (i < list.length && list[i].k === 'gain' && !list[i].setup && !list[i].card) {
+        const g = list[i];
+        parts.push(`${g.p === me ? `<span class="pn" style="color:${COLOR_HEX[s.players[g.p].color]}">You</span>` : pTag(s, g.p)} ${resList(g.res)}`);
+        i++;
+      }
+      i--;
+      out.push(`<div class="log-e log-gain">${parts.join('<span class="sep">·</span>')}</div>`);
+    } else out.push(logLine(s, e, me));
+  }
+  return out.join('');
 }
 
 /* ============================================================
@@ -1035,7 +1130,11 @@ function currentModal() {
   }
   if (mm && mm.type === 'trade' && (!s || s.phase !== 'main' || s.cur !== me)) { app.ui.modal = null; if (s && s.phase !== 'ended' && s.cur !== me) toast('Your turn ended.'); }
   if (app.ui.modal) return app.ui.modal;
-  if (app.view === 'room' && d && d.status === 'ended' && s && app.ui.endDismissed !== d.code + ':' + d.endedAt) return { type: 'end' };
+  if (app.view === 'room' && d && d.status === 'ended' && s && app.ui.endDismissed !== d.code + ':' + d.endedAt) {
+    const wait = typeof FX !== 'undefined' ? FX.holdFor() : 0; // let the winner's moment play first
+    if (wait > 0) { clearTimeout(app.ui.modalWait); app.ui.modalWait = setTimeout(renderModal, wait + 30); return null; }
+    return { type: 'end' };
+  }
   return null;
 }
 
@@ -1044,9 +1143,15 @@ function renderModal() {
   if (!root) return;
   const m = currentModal();
   const mtype = m ? m.type : null;
-  if (mtype && mtype !== app.ui.lastModal && mtype !== 'end') Sound.play('open');
+  const prev = app.ui.lastModal;
+  if (mtype && mtype !== prev && mtype !== 'end') Sound.play('open');
   app.ui.lastModal = mtype;
-  if (!m) { setHTML(root, ''); return; }
+  if (!m) {
+    setHTML(root, '');
+    // give keyboard focus back to whatever opened the window
+    if (prev && app.ui.modalReturn) { const r = app.ui.modalReturn; app.ui.modalReturn = null; if (document.contains(r)) try { r.focus({ preventScroll: true }); } catch (e) { } }
+    return;
+  }
   const g = app.g, d = g && g.view, s = d && d.game, me = myIndexIn(d);
   let body = '', wide = false, dismiss = true;
   if (m.type === 'discard') {
@@ -1080,6 +1185,9 @@ function renderModal() {
         <div class="snd-row"><label class="switch"><input type="checkbox" id="sndMusic"> <span>Music</span></label><input type="range" id="sndMusicVol" min="0" max="100" step="1" aria-label="Music volume"><output id="sndMusicOut"></output></div>
       </div>
       <div class="modal-actions"><button class="btn" data-act="snd-test">Test effects</button><button class="btn primary" data-act="close">Done</button></div>`;
+  } else if (m.type === 'news') {
+    body = `<h2>What's new in ${esc(NEWS.v)}</h2><p class="sub">${esc(NEWS.lead)}</p><ul class="news">${NEWS.items.map(([t, x]) => `<li><b>${esc(t)}</b> ${esc(x)}</li>`).join('')}</ul>
+      <div class="modal-actions"><button class="btn primary" data-act="close">Let's play</button></div>`;
   } else if (m.type === 'rules') {
     wide = true;
     body = `<h2>How to play</h2>${rulesHTML()}<div class="modal-actions"><button class="btn primary" data-act="close">Got it</button></div>`;
@@ -1091,7 +1199,18 @@ function renderModal() {
     wide = true;
     body = endScreen(d, s, me);
   }
-  setHTML(root, `<div class="modal-back" ${dismiss ? 'data-act="backdrop"' : ''}><div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">${body}</div></div>`);
+  // remember which control had focus so a re-render doesn't throw keyboard users back to the top
+  const ae = document.activeElement;
+  const focusKey = ae && root.contains(ae) && ae.dataset ? ['act', 'k', 'r', 'tab', 'q'].map(k => ae.dataset[k] || '').join('|') : null;
+  setHTML(root, `<div class="modal-back" ${dismiss ? 'data-act="backdrop"' : ''}><div class="modal${wide ? ' wide' : ''}${m.type === 'trade' || m.type === 'counter' ? ' trade' : ''}" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">${body.replace('<h2>', '<h2 id="modalTitle">')}</div></div>`);
+  const box = root.querySelector('.modal');
+  if (box && mtype !== prev) {
+    if (!prev) app.ui.modalReturn = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+    try { box.focus({ preventScroll: true }); } catch (e) { }
+  } else if (box && focusKey && !root.contains(document.activeElement)) {
+    const again = [...box.querySelectorAll('[data-act]')].find(b => ['act', 'k', 'r', 'tab', 'q'].map(k => b.dataset[k] || '').join('|') === focusKey);
+    try { (again || box).focus({ preventScroll: true }); } catch (e) { }
+  }
   if (m.type === 'sound') bindSoundPanel();
 }
 function bindSoundPanel() {
@@ -1244,6 +1363,7 @@ function closeModal() {
 }
 function leaveRoom() {
   Emotes.close();
+  setTitle(false);
   closeSession();
   app.view = 'home';
   setHash('');
@@ -1268,6 +1388,9 @@ function handleAct(act, ds, el) {
     case 'del': app.ui.modal = { type: 'del', code: ds.code }; return render();
     case 'del-now': app.ui.modal = null; render(); return deleteTable(ds.code);
     case 'pbots': app.ui.practice.bots = +ds.n; return renderPractice();
+    case 'goto-friends': { const c = $('#friendsCard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTimeout(() => { const n = $('#homeName'); if (n && !n.value) n.focus(); }, 350); return; }
+    case 'allmaps': app.ui.allMaps = true; return renderPractice();
+    case 'news': app.ui.modal = { type: 'news' }; return render();
     case 'pmap': app.ui.practice.map = ds.v; return renderPractice();
     case 'playout': app.ui.practice.layout = ds.v; return renderPractice();
     case 'pdice': app.ui.practice.dice = ds.v; return renderPractice();
@@ -1285,7 +1408,10 @@ function handleAct(act, ds, el) {
     case 'snd-test': ['dice', 'settlement', 'coin', 'yourTurn'].forEach((n, i) => Sound.play(n, { delay: i * 0.6 })); return;
     case 'copy-invite': {
       if (!g) return;
-      return copyText(inviteLink(g.code), 'Invite link copied.');
+      const url = inviteLink(g.code);
+      // phones: open the share sheet (WhatsApp, Messages…); elsewhere copy the link
+      if (canShare()) { navigator.share({ title: 'Hexstead', text: `Join my Hexstead table (code ${g.code})`, url }).catch(e => { if (!e || e.name !== 'AbortError') copyText(url, 'Invite link copied.'); }); return; }
+      return copyText(url, 'Invite link copied.');
     }
     case 'unsit': return send({ t: 'leave' });
     case 'color': return send({ t: 'color', color: ds.c });
@@ -1451,6 +1577,17 @@ function bindEvents() {
       toast(off ? 'Sound off. Press M to turn it back on.' : 'Sound on.');
       return;
     }
+    if (e.key === 'Tab') {
+      const box = document.querySelector('#modalRoot .modal');
+      if (!box) return;
+      const items = [...box.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === box)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      else if (!box.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      return;
+    }
     if (e.key !== 'Escape') return;
     if (app.ui.emotesOpen) { Emotes.close(); return; }
     if (app.ui.modal) { closeModal(); return; }
@@ -1464,7 +1601,31 @@ function bindEvents() {
       const hn = $('#hostNote');
       if (hn && g.pending.length && Date.now() - g.sentAt > 5000 && hn.textContent !== 'Waiting for the server…') renderTopbar(g);
     }
+    // keep the "waking up" counter ticking so the wait never looks frozen
+    if (app.view === 'home' && !onlineReady() && !document.hidden) renderHomeStatus();
   }, 500);
+}
+
+/* ---------- what's new (shown once to returning players after an update) ---------- */
+const NEWS = {
+  v: '2.3',
+  lead: 'A polish pass across the whole game.',
+  items: [
+    ['A better-looking board.', 'Lit, textured hexes, shallow water around the island, bigger number tokens and harbours, and pieces with depth.'],
+    ['Easier to follow on phones.', 'Everyone\'s name, points and cards sit in a strip above the board, the dice show in the status bar, and the latest move scrolls along the bottom.'],
+    ['Your turn stands out.', 'The status bar pulses, the browser tab says "Your turn", and Android phones give a short buzz.'],
+    ['Clearer trade offers.', 'Always "You give" then "You get", colour-coded and with bigger cards. Players still deciding share one line.'],
+    ['A moment for the winner.', 'A winner card and confetti before the results.'],
+    ['Friendlier home and lobby.', 'Big Play buttons, a live counter while the server wakes up, Share invite on phones, and the Start button always in reach.'],
+    ['Cleaner game log.', 'You are "You", and each roll\'s income is gathered on one line.'],
+    ['Fonts built in.', 'The game no longer loads its fonts from Google, so it looks right even with no connection.'],
+  ],
+};
+function maybeShowNews() {
+  const seen = store('hexstead.seenVersion');
+  if (seen === HEXSTEAD_VERSION) return;
+  store('hexstead.seenVersion', HEXSTEAD_VERSION);
+  if ((seen || app.returning) && NEWS.v === HEXSTEAD_VERSION && app.view === 'home' && !app.ui.modal) { app.ui.modal = { type: 'news' }; render(); }
 }
 
 /* ---------- start ---------- */
@@ -1477,6 +1638,7 @@ function boot() {
   const code = (location.hash || '').replace('#', '').toUpperCase();
   if (/^[A-Z0-9]{5}$/.test(code)) enterOnline(code);
   render();
+  maybeShowNews();
   window.addEventListener('hashchange', () => {
     const c = (location.hash || '').replace('#', '').toUpperCase();
     if (/^[A-Z0-9]{5}$/.test(c) && (!app.g || app.g.code !== c)) enterOnline(c);

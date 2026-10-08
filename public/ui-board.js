@@ -24,6 +24,15 @@ const TERRAIN = {
 const RES_COLOR = { lumber: '#2f7d45', brick: '#bf5632', wool: '#93c766', grain: '#e8bf3e', ore: '#8a93a5' };
 
 const ICON_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<radialGradient id="g-forest" cx="50%" cy="42%" r="62%"><stop offset="0" stop-color="#3f8a52"/><stop offset=".7" stop-color="#2f6e3f"/><stop offset="1" stop-color="#245733"/></radialGradient>
+<radialGradient id="g-hills" cx="50%" cy="42%" r="62%"><stop offset="0" stop-color="#cf7a4f"/><stop offset=".7" stop-color="#b9623b"/><stop offset="1" stop-color="#9c4f2e"/></radialGradient>
+<radialGradient id="g-pasture" cx="50%" cy="42%" r="62%"><stop offset="0" stop-color="#a4d06e"/><stop offset=".7" stop-color="#8dbd58"/><stop offset="1" stop-color="#77a648"/></radialGradient>
+<radialGradient id="g-fields" cx="50%" cy="42%" r="62%"><stop offset="0" stop-color="#f0c95c"/><stop offset=".7" stop-color="#dfb440"/><stop offset="1" stop-color="#c79c2f"/></radialGradient>
+<radialGradient id="g-mountains" cx="50%" cy="42%" r="62%"><stop offset="0" stop-color="#939cab"/><stop offset=".7" stop-color="#7b8494"/><stop offset="1" stop-color="#666f7e"/></radialGradient>
+<radialGradient id="g-desert" cx="50%" cy="42%" r="62%"><stop offset="0" stop-color="#ead8a3"/><stop offset=".7" stop-color="#d9c48c"/><stop offset="1" stop-color="#c3ad73"/></radialGradient>
+<radialGradient id="g-token" cx="45%" cy="38%" r="65%"><stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#eadcbc"/></radialGradient>
+<filter id="f-soft" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="2.5" stdDeviation="2" flood-color="#000" flood-opacity=".38"/></filter>
+<filter id="f-piece" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="3" stdDeviation="2.2" flood-color="#000" flood-opacity=".45"/></filter>
 <symbol id="i-lumber" viewBox="0 0 24 24"><path d="M12 2.5 6 10.5h3.2L5 16.5h5.6V21h2.8v-4.5H19l-4.2-6H18z" fill="#effaf1"/></symbol>
 <symbol id="i-brick" viewBox="0 0 24 24"><g fill="#ffe9dd"><rect x="2.5" y="5" width="9" height="4" rx="1"/><rect x="12.5" y="5" width="9" height="4" rx="1"/><rect x="2.5" y="10.2" width="4" height="4" rx="1"/><rect x="7.5" y="10.2" width="9" height="4" rx="1"/><rect x="17.5" y="10.2" width="4" height="4" rx="1"/><rect x="2.5" y="15.4" width="9" height="4" rx="1"/><rect x="12.5" y="15.4" width="9" height="4" rx="1"/></g></symbol>
 <symbol id="i-wool" viewBox="0 0 24 24"><g fill="#fff"><circle cx="10" cy="12.5" r="4"/><circle cx="13.6" cy="10.4" r="4.1"/><circle cx="16.4" cy="13.2" r="3.7"/><circle cx="12.2" cy="15" r="3.6"/></g><ellipse cx="6" cy="11.6" rx="2.4" ry="2.9" fill="#2d3b22"/><path d="M10.5 18v3M15.5 18v3" stroke="#2d3b22" stroke-width="1.8" stroke-linecap="round"/></symbol>
@@ -102,7 +111,9 @@ function hexPoints(T, hi, k) {
 }
 
 const SETTLE_PATH = 'M-12 11H12V-2L0-13-12-2Z';
+const SETTLE_SHADE = 'M0-13 12-2V11H0Z';
 const CITY_PATH = 'M-19 13H19V-4H5V-10L-7-20-19-10Z';
+const CITY_SHADE = 'M5-4H19V13H5ZM-7-20 5-10V13H-7Z';
 const ROBBER_PATH = 'M-11 16C-11 5-8-1-5.5-3.5-10-7-9.5-17 0-18.5 9.5-17 10-7 5.5-3.5 8-1 11 5 11 16Z';
 
 function axialPoints(q, r, k, S) {
@@ -145,6 +156,9 @@ function boardSVG(s, opts) {
   const colorOf = p => COLOR_HEX[s.players && s.players[p] ? s.players[p].color : 'white'] || '#ccc';
   // shoreline
   out.push('<g>');
+  // shallow water around the island, then the beach
+  s.board.hexes.forEach((h, hi) => out.push(`<polygon points="${hexPoints(T, hi, 1.62)}" fill="#1b5578" opacity=".32"/>`));
+  s.board.hexes.forEach((h, hi) => out.push(`<polygon points="${hexPoints(T, hi, 1.36)}" fill="#22688f" opacity=".38"/>`));
   s.board.hexes.forEach((h, hi) => out.push(`<polygon points="${hexPoints(T, hi, 1.16)}" fill="#e3d29d" stroke="#f1e6bf" stroke-width="5" stroke-linejoin="round"/>`));
   s.board.hexes.forEach((h, hi) => out.push(`<polygon points="${hexPoints(T, hi, 1.07)}" fill="#cdb87d"/>`));
   for (const L of s.board.lakes || []) out.push(lakeSVG(L, S));
@@ -164,14 +178,14 @@ function boardSVG(s, opts) {
     }
     const X = px * S, Y = py * S;
     const any = pt.type === 'any';
-    out.push(`<g><title>${any ? '3:1 harbour: trade any 3 identical cards for 1' : '2:1 ' + RES_NAME[pt.type] + ' harbour'}</title><circle class="port-disc" cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="21" fill="${any ? '#f3e8cf' : RES_COLOR[pt.type]}"/>` +
-      (any ? `<text class="port-txt" x="${X.toFixed(1)}" y="${(Y + 5).toFixed(1)}" font-size="15">3:1</text>`
-        : `<use href="#i-${pt.type}" x="${(X - 9).toFixed(1)}" y="${(Y - 17).toFixed(1)}" width="18" height="18"/><text class="port-txt" x="${X.toFixed(1)}" y="${(Y + 14).toFixed(1)}" font-size="11">2:1</text>`) + '</g>');
+    out.push(`<g filter="url(#f-soft)"><title>${any ? '3:1 harbour: trade any 3 identical cards for 1' : '2:1 ' + RES_NAME[pt.type] + ' harbour'}</title><circle cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="29" fill="#f3e8cf" stroke="#8b6a40" stroke-width="2"/><circle class="port-disc" cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="24" fill="${any ? '#f3e8cf' : RES_COLOR[pt.type]}"/>` +
+      (any ? `<text class="port-txt" x="${X.toFixed(1)}" y="${(Y + 6.5).toFixed(1)}" font-size="19">3:1</text>`
+        : `<use href="#i-${pt.type}" x="${(X - 12).toFixed(1)}" y="${(Y - 21).toFixed(1)}" width="24" height="24"/><text class="port-txt" x="${X.toFixed(1)}" y="${(Y + 17).toFixed(1)}" font-size="14">2:1</text>`) + '</g>');
   }
   // land hexes
   s.board.hexes.forEach((h, hi) => {
     const c = T.centers[hi];
-    out.push(`<polygon class="hex-base" points="${hexPoints(T, hi, 0.975)}" fill="${TERRAIN[h.t].base}"><title>${TERRAIN[h.t].name}${h.n ? ' ' + h.n : ''}</title></polygon>`);
+    out.push(`<polygon class="hex-base" points="${hexPoints(T, hi, 0.975)}" fill="url(#g-${h.t})"><title>${TERRAIN[h.t].name}${h.n ? ' ' + h.n : ''}</title></polygon><polygon points="${hexPoints(T, hi, 0.93)}" fill="none" stroke="rgba(255,255,255,.13)" stroke-width="2.5" pointer-events="none"/>`);
     out.push(`<g pointer-events="none">${terrainGlyphs(h.t, c.x * S, c.y * S, hi)}</g>`);
   });
   // last-roll glow
@@ -183,8 +197,8 @@ function boardSVG(s, opts) {
     const hot = h.n === 6 || h.n === 8;
     const pips = Engine.PIPS[h.n];
     let dots = '';
-    for (let i = 0; i < pips; i++) dots += `<circle class="pip" cx="${(X + (i - (pips - 1) / 2) * 5.6).toFixed(1)}" cy="${(Y + 14).toFixed(1)}" r="2"/>`;
-    out.push(`<g class="tok${hot ? ' hot' : ''}${hi === s.board.robber ? ' dim' : ''}" pointer-events="none"><circle class="bg" cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="27"/><text x="${X.toFixed(1)}" y="${(Y + 7).toFixed(1)}" font-size="${hot ? 27 : 24}">${h.n}</text>${dots}</g>`);
+    for (let i = 0; i < pips; i++) dots += `<circle class="pip" cx="${(X + (i - (pips - 1) / 2) * 6).toFixed(1)}" cy="${(Y + 16).toFixed(1)}" r="2.3"/>`;
+    out.push(`<g class="tok${hot ? ' hot' : ''}${hi === s.board.robber ? ' dim' : ''}" pointer-events="none" filter="url(#f-soft)"><circle class="bg" cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="31"/><text x="${X.toFixed(1)}" y="${(Y + 8.5).toFixed(1)}" font-size="${hot ? 32 : 28}">${h.n}</text>${dots}</g>`);
   });
   // roads
   if (s.roads) s.roads.forEach((p, e) => {
@@ -193,21 +207,21 @@ function boardSVG(s, opts) {
     const k = 0.2;
     const x1 = (a.x + (b.x - a.x) * k) * S, y1 = (a.y + (b.y - a.y) * k) * S, x2 = (b.x + (a.x - b.x) * k) * S, y2 = (b.y + (a.y - b.y) * k) * S;
     const fresh = opts.fresh && opts.fresh.has('e' + e) ? ' class="new-piece"' : '';
-    out.push(`<g${fresh}><line class="road-under" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke-width="15"/><line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${colorOf(p)}" stroke-width="9" stroke-linecap="round"/></g>`);
+    out.push(`<g${fresh} filter="url(#f-piece)"><line class="road-under" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke-width="16"/><line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${colorOf(p)}" stroke-width="10" stroke-linecap="round"/><line x1="${x1.toFixed(1)}" y1="${(y1 - 1.6).toFixed(1)}" x2="${x2.toFixed(1)}" y2="${(y2 - 1.6).toFixed(1)}" stroke="rgba(255,255,255,.28)" stroke-width="2.5" stroke-linecap="round"/></g>`);
   });
   // buildings
   if (s.bld) s.bld.forEach((b, v) => {
     if (!b) return;
     const p = T.verts[v];
     const fresh = opts.fresh && opts.fresh.has('v' + v + (b.city ? 'c' : '')) ? ' new-piece' : '';
-    out.push(`<g transform="translate(${(p.x * S).toFixed(1)} ${(p.y * S).toFixed(1)})"><path class="piece${fresh}" d="${b.city ? CITY_PATH : SETTLE_PATH}" fill="${colorOf(b.p)}"/></g>`);
+    out.push(`<g transform="translate(${(p.x * S).toFixed(1)} ${(p.y * S).toFixed(1)}) scale(${b.city ? 1.18 : 1.3})" filter="url(#f-piece)"><g class="${fresh.trim()}"><path class="piece" d="${b.city ? CITY_PATH : SETTLE_PATH}" fill="${colorOf(b.p)}"/><path d="${b.city ? CITY_SHADE : SETTLE_SHADE}" fill="rgba(0,0,0,.2)" pointer-events="none"/><path class="piece-line" d="${b.city ? CITY_PATH : SETTLE_PATH}" fill="none"/></g></g>`);
   });
   // robber
   {
     const hi = s.board.robber; const h = s.board.hexes[hi];
     const c = hi >= 0 ? T.centers[hi] : (s.board.robberSpot || { x: 0, y: 0 });
     const X = c.x * S + (h && h.n ? 44 : 0), Y = c.y * S + (h && h.n ? 4 : 0);
-    out.push(`<g transform="translate(${X.toFixed(1)} ${Y.toFixed(1)})" pointer-events="none"><ellipse cx="0" cy="17" rx="14" ry="4.5" fill="rgba(0,0,0,.35)"/><path d="${ROBBER_PATH}" fill="#24242e" stroke="#0a0a0e" stroke-width="2"/><ellipse cx="-3" cy="-12" rx="2.5" ry="3.5" fill="#4a4a58"/></g>`);
+    out.push(`<g transform="translate(${X.toFixed(1)} ${Y.toFixed(1)}) scale(1.35)" pointer-events="none"><ellipse cx="0" cy="17" rx="14" ry="4.5" fill="rgba(0,0,0,.4)"/><path d="${ROBBER_PATH}" fill="#24242e" stroke="#cfd6de" stroke-width="1.6"/><ellipse cx="-3" cy="-12" rx="2.5" ry="3.5" fill="#55556a"/></g>`);
   }
   // interactive targets
   const tg = opts.targets || {};
@@ -219,7 +233,7 @@ function boardSVG(s, opts) {
   }
   if (tg.v) for (const v of tg.v) {
     const p = T.verts[v];
-    out.push(`<circle class="tgt-hit" data-v="${v}" cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="22"/><circle class="tgt-v" pointer-events="none" cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="10"/>`);
+    out.push(`<circle class="tgt-hit" data-v="${v}" cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="34"/><circle class="tgt-v" pointer-events="none" cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="12"/>`);
   }
   return { vb, body: out.join('') };
 }

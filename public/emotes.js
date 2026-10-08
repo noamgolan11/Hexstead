@@ -61,6 +61,9 @@ const Emotes = (() => {
       const row = document.querySelector(`#players .pl:nth-child(${w.i + 1})`);
       const r = row && row.getBoundingClientRect();
       if (vis(r) && r.left > 150) return { x: r.left - 10, y: r.top + r.height / 2, side: 'left' }; // computer: beside the name
+      const chip = document.querySelector(`#pstrip .ps:nth-child(${w.i + 1})`);
+      const cr = chip && chip.offsetParent && chip.getBoundingClientRect();
+      if (vis(cr)) return { x: cr.left + cr.width / 2, y: cr.bottom + 8, side: 'below' }; // phone: under their name at the top of the board
       if (vis(r)) return { x: r.right - 64, y: r.top + r.height / 2, side: 'left', inRow: true }; // phone: the list is full width, so over the row
       const b = document.getElementById('boardWrap');
       const br = b && b.getBoundingClientRect();
@@ -83,12 +86,12 @@ const Emotes = (() => {
     el.className = 'emote-bubble ' + a.side + (x.e ? ' big' : ' words');
     el.style.left = a.x + 'px'; el.style.top = a.y + 'px';
     el.style.setProperty('--pc', w.color || '#ccc');
-    el.innerHTML = `${a.side === 'left' && !a.inRow ? '' : `<span class="eb-name">${esc(w.name)}</span>`}<span class="eb-body" dir="auto">${x.e ? x.e : phraseHTML(x.q, x.r)}</span>`;
+    el.innerHTML = `${(a.side === 'left' && !a.inRow) || a.side === 'below' ? '' : `<span class="eb-name">${esc(w.name)}</span>`}<span class="eb-body" dir="auto">${x.e ? x.e : phraseHTML(x.q, x.r)}</span>`;
     (document.getElementById('fx') || document.body).appendChild(el);
     // keep the whole pop-up on screen, whatever the screen size
     const bw = el.offsetWidth, bh = el.offsetHeight;
     let left = a.x - (a.side === 'left' ? bw : bw / 2);
-    let top = a.y - (a.side === 'top' ? bh : bh / 2);
+    let top = a.y - (a.side === 'top' ? bh : a.side === 'below' ? 0 : bh / 2);
     left = Math.max(6, Math.min(innerWidth - bw - 6, left));
     top = Math.max(6, Math.min(innerHeight - bh - 6, top));
     el.style.left = left + 'px'; el.style.top = top + 'px';
